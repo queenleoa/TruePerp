@@ -7,7 +7,7 @@ A position's margin defines its own liquidation range — from the maintenance b
 Funding needs no oracle either: open-interest skew sets the rate (the crowded side pays), and the imbalance residual accrues to LPs.
 
 - **[DESIGN.md](DESIGN.md)** — the full specification: a position walked end-to-end, the margin-derived ranges, the ADL engine precisely, the LP vault, parameters.
-- **[RESEARCH.md](RESEARCH.md)** — what an oracle does in a perp and what deleting it costs; the impossibility of passive deleveraging; every major perp architecture and its documented failures (GMX's zero-impact door, Hyperliquid's JELLY squeeze, Perpetual v1's vAMM drain) read for lessons; manipulation economics; the math.
+- **[RESEARCH.md](RESEARCH.md)** — the four jobs an oracle does in a perp and the historical record of each failing (Mango's $116M oracle-source pump, GMX's zero-impact door, Hyperliquid's JELLY squeeze, Perpetual v1's payer-less funding drain, OKEx's 17.7% clawback, the $19B October 2025 cascade); why the TWAP middle path fails; the impossibility of passive deleveraging and the cash-settled corollary; the CEX lineage, LP-as-house empirics, and pricing theory; manipulation economics replayed attack by attack; the math; and the properties, benefits, and drawbacks that emerge.
 - **[PARAMETERS.md](PARAMETERS.md)** — the risk model: the equity-invariance lemma, the maintenance-margin inequality (no execution term), per-tier first cuts and leverage ceilings, funding and OI-cap sizing, and the Monte-Carlo/replay program that gates production values.
 - **[WHITEPAPER.md](WHITEPAPER.md)** — the formal paper.
 
