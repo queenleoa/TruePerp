@@ -1,0 +1,27 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc_version = '0.8.26'
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 20
+via_ir = true
+ffi = true
+
+remappings = [
+    "truelend/=lib/truelend/src/",
+    "v4-core/=lib/truelend/lib/v4-periphery/lib/v4-core/src/",
+    "@uniswap/v4-core/=lib/truelend/lib/v4-periphery/lib/v4-core/",
+    "v4-periphery/=lib/truelend/lib/v4-periphery/",
+    "solmate/=lib/truelend/lib/v4-periphery/lib/v4-core/lib/solmate/",
+    "forge-std/=lib/truelend/lib/forge-std/src/",
+    "@openzeppelin/=lib/truelend/lib/v4-periphery/lib/v4-core/lib/openzeppelin-contracts/",
+    "openzeppelin-contracts/=lib/truelend/lib/v4-periphery/lib/v4-core/lib/openzeppelin-contracts/",
+    "ds-test/=lib/truelend/lib/v4-periphery/lib/v4-core/lib/forge-std/lib/ds-test/src/",
+    "permit2/=lib/truelend/lib/v4-periphery/lib/permit2/",
+    "forge-gas-snapshot/=lib/truelend/lib/v4-periphery/lib/permit2/lib/forge-gas-snapshot/src/",
+    "@ensdomains/=lib/truelend/lib/v4-periphery/lib/v4-core/node_modules/@ensdomains/",
+    "hardhat/=lib/truelend/lib/v4-periphery/lib/v4-core/node_modules/hardhat/",
+    "erc4626-tests/=lib/truelend/lib/v4-periphery/lib/v4-core/lib/openzeppelin-contracts/lib/erc4626-tests/",
+]
