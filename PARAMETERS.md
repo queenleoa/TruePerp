@@ -1,116 +1,378 @@
-# TruePerp — Parameter Modelling
+# TruePerp: Parameter Framework
 
-This document does for TruePerp what [TrueLend's PARAMETERS.md](https://github.com/queenleoa/TrueLend/blob/main/PARAMETERS.md) does for lending: state *what* is being chosen and what "correct" means (§1–2), build the risk model and derive closed-form first cuts with worked numbers (§3–6), and specify the Monte-Carlo and historical-replay program that turns first cuts into production values (§7). The methodology, calibration data, episode engine, and replay harness are TrueLend's — an ADL episode is an episode — so this document is short where that one is long, and derives only what is genuinely different: the geometry of margin-defined ranges, the disappearance of the execution term, and the funding and open-interest knobs a perp adds.
+## Document status
 
----
+This note defines a reproducible parameter-selection method for the proposed
+`v0.2-demo` design. Values labelled **illustrative** are chosen to make a
+hackathon demonstration legible; they are not estimates of production safety.
+No parameter in this document substitutes for simulation, historical replay, or
+an external review.
 
-## 1. What is being chosen, and who bears what
+## 1. Parameter objectives
 
-| Parameter | Bears the consequence | Failure mode if wrong |
-|---|---|---|
-| `maintenanceMarginBps` (m) — the runway width | LPs (too small → gap-through shortfalls) and traders (too large → early forced deleveraging) | the load-bearing choice; everything below feeds it |
-| `initialMarginBps` (≥ 2m) — max leverage 1/im | traders | positions born too close to their runway |
-| pacing (`targetChunks`, `chunkInterval`, `timeCapX`, `maxChunkDepthBps`) | both | too slow: drift outruns deleveraging → backstops; too fast: needless churn penalties |
-| `basePenaltyBps` (kernel-capped at m/4) | traders → LPs | mispriced compensation for the absorbers |
-| `fundingKBps` | crowded side → thin side + LPs | skew persists (too low) or books empty (too high) |
-| `oiCapBps` | LPs | the house carries a book its equity cannot absorb |
-| open/close fees | traders → LPs | LP yield floor |
+The parameters serve three separate constraints:
 
-Two structural simplifications against the lending problem, both consequences of cash settlement: there is **no execution-cost term** (chunks trade nothing — RESEARCH §2), and there is **no interest-rate model** (funding replaces it, priced by skew rather than utilization).
+1. **Trader solvency:** unsafe exposure should be reduced before margin is
+   exhausted.
+2. **Vault solvency:** aggregate winning claims must remain payable from vault
+   cash under the declared position caps.
+3. **Price integrity:** the value transferable through the perpetual must be
+   small relative to the cost of moving the reference pool.
 
-## 2. Objectives and tolerances
+These constraints cannot be represented by a single open-interest percentage.
+The design therefore separates margin, price, capacity, and LP-liquidity
+parameters.
 
-Over a stress-calibrated distribution of ADL episodes, per volatility tier, a parameter set is **accepted** iff:
+## 2. Definitions
 
-- **LP shortfall frequency** ≤ 1% of episodes and **conditional severity** ≤ 5% of the position's notional (ε₁, ε₂ — the vault analog of lender loss);
-- **backstop frequency** ≤ 0.5% of episodes (ε₃ — gradualism must almost always suffice);
-- preferred among accepted sets by **lowest median trader episode cost** (penalties + funding during the episode; adverse price movement is market risk, not mechanism cost) and **highest self-termination fraction** (episodes ending in restored health or recovery rather than any close).
+| Symbol | Definition |
+|---|---|
+| $B$ | Remaining base exposure |
+| $E$ | Entry price in cash per base |
+| $P$ | Guarded settlement mark |
+| $M$ | Remaining trader margin |
+| $F$ | Signed funding owed by the trader |
+| $Q$ | Position equity, $M+sB(P-E)-F$ |
+| $m$ | Maintenance-margin ratio |
+| $h$ | Post-reduction target margin ratio, $h\ge m$ |
+| $\pi$ | Penalty rate on reduced notional |
+| $C$ | Physical vault cash |
+| $R_o$ | Other obligations already backed by vault cash |
+| $K$ | Aggregate reserved maximum profit, $\sum_i K_i$ |
+| $C_{free}$ | Unencumbered cash, $\max(C-K-R_o,0)$ |
+| $V$ | Limited-liability-aware reporting NAV |
+| $D_{lock,\delta}$ | Locked executable base depth within price band $\delta$ |
 
-The tolerances are inherited from TrueLend §2 deliberately: the LP vault underwrites the same kind of tail the lender vaults do, and should be held to the same standard.
+Long direction is $s=+1$ and short direction is $s=-1$.
 
-## 3. Risk model and calibration
+## 3. Illustrative demo configuration
 
-Price dynamics, tiers, and data are TrueLend's, unchanged and shared: jump-diffusion with tier calibration from [`calibration.json`](https://github.com/queenleoa/TrueLend/blob/main/notebooks/calibration.json) (99th-percentile 30-day realized vol since 2020, threshold-detected jumps reflected adverse, live on-chain depth), plus the six-crash-week 1-minute replay library. The perp adds one axis: **leverage** — equivalently the runway width m — swept per tier. Depth enters only as the chunk-size governor (the cap keyed to measured in-range base depth), not as a slippage source.
+The proposed demo deliberately uses one curated ETH/USDC market and conservative
+limits. The values below are chosen for presentation and testing.
 
-| Tier | σ (99th-pct ann., static / calibrated) | jump profile | example |
-|---|---|---|---|
-| Stable | 2% / 38% (depeg months) | rare, depeg tail | USDC/USDT |
-| Major | 80% / 182% | 72/yr, μ −3.5% | ETH/USDC |
-| Long-tail | 150% / 286% | 65/yr, μ −6.4% | PEPE/WETH |
+| Parameter | Illustrative value | Purpose |
+|---|---:|---|
+| Initial margin | 10% | Maximum displayed leverage of 10× |
+| Maintenance margin $m$ | 5% | Material runway visible in the demo |
+| Target margin $h$ | 7.5% | Restores headroom after reduction |
+| Reduction penalty $\pi$ | 0.10% | Small relative to maintenance |
+| Market profit-cap ceiling | 100% of post-fee initial margin | Upper bound from which the trader selects $K_i$ |
+| Maximum encumbered-cash share $\rho$ | 80% of vault cash | Leaves operating liquidity |
+| Unconfirmed price deviation $\delta$ | 1% | Bounds one-transaction forced settlement |
+| Vault-capital factor $\alpha$ | 20% | Gross OI no greater than 0.2× free cash |
+| Spot-depth factor $\beta$ | 5% | OI small relative to locked venue depth |
+| Per-position share of market cap | 10% | Prevents one position dominating the book |
+| Observation interval | 30 seconds | Makes filter behavior visible in a demo |
+| Observation count | 5 | Short, explicit confirmation window |
+| Vault risk epoch | Fixed while OI is live | No active share entry or exit during the epoch |
+| Reference-liquidity lock | Complete vault epoch | Makes the depth budget durable |
+| Funding rate | 0 in base demo | Isolates the liquidation contribution |
 
-## 4. The geometry: how wide must the runway be?
+The checked-in `v0.1` defaults—2% maintenance, 20× maximum leverage, 100
+target chunks, and 100%-annualized funding at full skew—remain implementation
+facts, not recommendations. Its scenario tests use two 18-decimal mock assets;
+real-token decimal normalization and base/cash orientation are `v0.2-demo`
+requirements, not calibrated parameters.
 
-### 4.1 Episode duration from the self-termination lemma
+## 4. Margin geometry
 
-RESEARCH §6.2: an episode entered at depth $d$ into the runway must shed fraction $r^\* \approx d$ of its notional to restore health. Chunks remove a fraction $\bar\lambda/N$ of the *remaining* size per interval $\tau$ (mean pacing multiplier $\bar\lambda \approx (1+\bar d)(1+\text{pressure}) \approx 2$ for a mid-range episode), so the shedding time is
+Ignoring funding and fees at opening, long equity is
 
 $$
-T(d) \;\approx\; \frac{N\,\tau}{\bar\lambda}\,\ln\!\frac{1}{1-d}.
+Q(P)=M+B(P-E).
 $$
 
-At defaults ($N{=}100$, $\tau{=}60$ s, $\bar\lambda{=}2$): $T(0.5) \approx 35$ min, $T(0.8) \approx 80$ min. Faster pacing buys time linearly; this is the same $\sqrt{T}$-vs-pacing trade TrueLend's model optimizes, minus the execution cost that used to push back.
-
-### 4.2 The maintenance-margin inequality
-
-While the engine sheds, the price must not traverse the *remaining* runway $(1-d)\,m$, and penalties must fit inside remaining equity. For all $d \in (0,1)$:
+The long bankruptcy and maintenance prices are
 
 $$
-(1-d)\,m \;\gtrsim\; \underbrace{z_{99}\,\sigma\sqrt{T(d)}}_{\text{drift }\mu} \;+\; \underbrace{\pi(T)\,d}_{\text{penalties, } \pi \le m/4} \;+\; \underbrace{f\,T(d)}_{\text{funding, negligible at episode scale}} .
+P_{bk}=E-\frac{M}{B},
+\qquad
+P_{maint}=\frac{P_{bk}}{1-m}.
 $$
 
-No $s$: the term that dominates TrueLend's stable tier — half the chunk-depth cap plus pool fees per churned unit — is structurally zero. The binding scenario is deep entry ($d \approx 0.5{-}0.8$, where drift has had time to matter and little runway remains); jumps are handled as in TrueLend §5: a jump larger than $(1-d)m$ gaps to the backstop, and its expected cost prices into the LP tolerance rather than the runway.
+For a short,
 
-### 4.3 First cuts, worked
+$$
+P_{bk}=E+\frac{M}{B},
+\qquad
+P_{maint}=\frac{P_{bk}}{1+m}.
+$$
 
-Solving the inequality at the worst $d$ (defaults; $z_{99}=2.33$; penalty at its 50 bps base):
+Margin primarily determines how far the intervention region lies from entry;
+$m$ primarily determines the relative width between maintenance and bankruptcy.
+Higher leverage moves both boundaries closer to entry. It does not give a
+meaningfully narrower maintenance-to-bankruptcy percentage band.
 
-| Tier | σ used | worst-case μ over T(0.8) | **m first cut** | im = 2m | **λ_max = 1/im** |
-|---|---|---|---|---|---|
-| Stable | 2% | 0.05% | **0.5%** (penalty/funding-floored) | 1% | **100×** (offer 50×) |
-| Major | 80% static | 1.9% | **4%** | 8% | **12.5×** |
-| Major | 182% calibrated | 4.4% | **8%** → 5–6% at N=50, τ=30 s | 10–12% | **8–10×** |
-| Long-tail | 286% calibrated | 6.9% | **10–12%** | 20–25% | **4–5×** |
+Opening fees must be deducted before testing initial margin and deriving these
+boundaries.
 
-Two cross-checks, both landing where they should:
+## 5. Required partial reduction
 
-- **Against TrueLend's validated tiers.** A runway of width m plays exactly the role of the LT gap $(1-\mathrm{LT})$: major-tier lending cleared LT 95 (5% gap) ex-ante and ex-post in the historical replay — and the perp first cut says majors want m ≈ 4–6%. Same market, same kernel, same answer by a different derivation.
-- **Against the looped construction.** TrueLend's LeverageRouter reaches $\lambda = 1/(1-\mathrm{LTV}) \Rightarrow$ 10.3× on majors; the direct-margin perp reaches $1/\mathrm{im} \approx$ 8–12.5×. The numbers agree on risk while differing in form for a real reason: looped leverage compounds through borrowing capacity (and pays interest), while perp leverage is bookkept against the vault (and pays funding) — the ceilings converge because the *runway*, not the construction, is what volatility constrains.
+At a fixed settlement mark, realizing a slice of PnL does not change total equity
+before fees. A penalty does. To restore target ratio $h$, the minimum base
+reduction is
 
-The default config ships m = 2% (20×): correct for the stable tier with margin to spare, aggressive for majors under stress calibration. **Per-tier `setConfig` before listing volatile markets is not optional**, exactly as TrueLend's maxLtBps tiers are not.
+$$
+c^*=\max\!\left(0,
+\frac{hPB-Q}{P(h-\pi)}\right),
+\qquad h>\pi.
+$$
 
-## 5. Funding: sizing k
+The call executes
 
-Funding's job here is not mark-pegging (RESEARCH §1) but pricing the **net exposure LPs carry**: at skew $s$, LPs are synthetically short $s \cdot \mathrm{OI}$ of base to the trader side. The rate at full skew, $k$, should cover what delta-hedging that exposure costs — the borrow/carry rate of the base asset, for which TrueLend's own vault curve (≈ 4–54% APR across utilization) and CEX conventions bracket the market: the standard baseline interest component is 0.01% per 8 hours (~11%/yr), market-wide funding ran ~10% → ~30% annualized in the levered week before the October 2025 cascade before collapsing to bear-market lows ([CoinGecko](https://www.coingecko.com/learn/october-10-crypto-crash-explained)), and Hyperliquid's 4%/hour cap on its premium-based rate marks the extreme ([docs](https://hyperliquid.gitbook.io/hyperliquid-docs)). Default $k = 100\%/\mathrm{yr}$ at *full* skew sits inside the observed band: a typical 20–40% skew prices at 20–40%/yr — above hedge cost, so LPs are net-paid for imbalance and traders are incented to balance the book. Perpetual Protocol v1 is the cautionary bound in the other direction: a vAMM has no natural funding payer, so its insurance fund paid the crowded side under sustained skew and drained (RESEARCH §4) — here the residual flows **to** the vault by construction, never from it. Sweep $k \in$ 50–300%/yr in the model with skew half-life vs trader-cost as the metric; Synthetix v2's skew-*velocity* funding (the rate drifts while imbalance persists, [SIP-279](https://github.com/Synthetixio/SIPs/blob/master/content/sips/sip-279.md)) is the documented refinement to evaluate in the same sweep.
+$$
+c=\min(c^*,c_{call},B),
+$$
 
-## 6. Open-interest cap, penalties, fees
+where $c_{call}$ is a per-call safety cap. If $c<c^*$, the position stays in the
+risk queue and can be processed again.
 
-**OI cap.** LP equity must absorb the tail of net trader PnL between rebalancing opportunities. With net OI ≤ $c \cdot E$ (cap fraction $c$) the one-day 99th-percentile LP drawdown is $\approx c \cdot z_{99} \sigma \sqrt{1/365}$ of equity — at $c = 50\%$ and major-tier σ = 80%, ≈ 4.9%. Choose $c$ per tier from a target daily drawdown (2–5%): $c \le \text{target}/(z_{99}\sigma\sqrt{1/365})$ — the default 50% suits majors; stables tolerate far more, long-tail far less. The Hyperliquid JELLY incident (RESEARCH §4–5) is the empirical case for making this cap *structural* rather than advisory: a book allowed to grow to ~27× the eventual squeeze loss forced a governance intervention; a cap proportional to LP equity keeps the worst position the house can face inside what the house has visibly staked.
+![Partial-liquidation geometry](docs/assets/liquidation-range.svg)
 
-**Penalty and reward.** Base 50 bps time-scaled ×1→×5, kernel-capped at m/4 so an episode can never be made unrecoverable by its own fees (TrueLend's parameter-model finding, inherited mechanically by passing $1{-}m$ into `ChunkMath.penaltyBps`). The executor reward (10 bps) is carved from the penalty — the audited rule. Note the cap binds early at low m: at m = 2%, the 50 bps base *is* the cap, so the time escalation is inert; at m = 5% it has room. The model should report realized penalty income per tier as the LP-compensation line item it is.
+If depth in the maintenance runway is defined by $Q=mPB(1-d)$ and the target is
+$h=m$, then
 
-**Fees.** 10/10 bps open/close are floor income for LPs and a spam brake; they are not risk parameters and are swept only for the trader-cost metric.
+$$
+\frac{c^*}{B}=\frac{md}{m-\pi}.
+$$
 
-## 7. Monte-Carlo and replay specification — status: specified, pending run
+The reduction is approximately $dB$ only when $\pi\ll m$. Restoration before a
+full close requires
 
-Everything reuses [TrueLend's model stack](https://github.com/queenleoa/TrueLend/tree/main/notebooks): the antithetic jump-diffusion path generator, the calibration pipeline, and the six-crash-week 1-minute replay library with both pool orientations (a pump liquidates shorts). What the perp run needs, concretely:
+$$
+d<1-\frac{\pi}{m}.
+$$
 
-1. **A perp episode variant in `engine.py`** (~40 lines beside `run_episodes`): margin ledger instead of collateral sale — chunk realizes $|P-E|\cdot c$ + penalty against margin, no proceeds/slippage leg, health-restoration termination ($\mathrm{Eq} \ge m \cdot \text{notional}$) alongside recovery/backstop exits, funding drag as a constant per-step drain at the episode's skew.
-2. **Grid**: tier × m ∈ {0.5, 1, 2, 4, 6, 10}% × leverage-at-entry λ ∈ {5, 10, 20, 50} (entry depth follows from im), pacing (N, τ) ∈ {(100, 60), (50, 30)}, k ∈ {50, 100, 300}%/yr; 4,000 antithetic paths per point at 12 s steps.
-3. **Metrics**: ε-acceptance per §2; median/95th trader episode cost; self-termination fraction; LP shortfall exceedance curves; funding-residual income.
-4. **Replay**: hypothetical positions opened hourly at each λ through the crash weeks, walk-forward re-acceptance on trailing-180-day calibration — the identical protocol that validated TrueLend's major tier ex-ante and ex-post, applied to (m, λ) pairs.
-5. **Deliverables**: `notebooks/` mirror of TrueLend's (parameters run, RESULTS, BACKTEST), and the §4.3 table's "first cut" column replaced by simulated values.
+This feasibility condition must be tested directly; a quarter-maintenance
+penalty cap does not guarantee self-termination for deep episodes.
 
-Until that run lands, the §4.3 first cuts plus TrueLend's replay-validated tier gaps are the operative recommendations, and the shipped default (m = 2%, 20×) should be treated as stable-tier-only.
+## 6. Worked ETH/USDC example
 
-## 8. Summary of first-cut recommendations
+Assume ETH is 2,500 USDC. A trader posts 1,000 USDC and opens a two-ETH long, for
+5,000 USDC notional and 5× leverage. With $m=5\%$:
 
-| Parameter | Stable | Major | Long-tail |
-|---|---|---|---|
-| `maintenanceMarginBps` | 50–100 | **400–600** | 1000–1200 |
-| `initialMarginBps` (λ_max) | 100–200 (50–100×) | 800–1200 (8–12×) | 2000–2500 (4–5×) |
-| pacing | 100 / 60 s | **50 / 30–60 s** | 100 / 60 s |
-| `basePenaltyBps` | 25 | 50 | 75–100 |
-| `fundingKBps` | 5,000 | 10,000 | 20,000 |
-| `oiCapBps` (vs LP equity) | 10,000+ | 5,000 | 2,000 |
+$$
+P_{bk}=2{,}500-\frac{1{,}000}{2}=2{,}000,
+$$
 
-The one-line takeaway mirrors TrueLend's: **the runway is drift-dominated** — with execution costs gone, everything reduces to whether paced deleveraging outruns $z_{99}\sigma\sqrt{T}$ inside a band of width m. Faster pacing, deeper pools, and active poking all buy leverage headroom; the model's job is to sit on the right side of that race per tier, and the kernel already knows how to run it.
+$$
+P_{maint}=\frac{2{,}000}{0.95}=2{,}105.26.
+$$
+
+At $P=2{,}050$, equity is 100 USDC and maintenance is 205 USDC. With the
+configured target $h=7.5\%$ and penalty $\pi=0.10\%$:
+
+$$
+c^*=\frac{0.075(2{,}050)(2)-100}{2{,}050(0.075-0.001)}
+\approx1.368\ \mathrm{ETH}.
+$$
+
+The engine therefore removes approximately 68.4% of the position rather than
+closing all two ETH. A comparison target of $h=m=5\%$ would require about 1.045
+ETH, but would restore no margin headroom.
+
+This example explains the mechanism; it does not estimate the probability that
+price crosses either boundary.
+
+## 7. Price guard
+
+Let $P_s$ be current spot and $P_f$ the filtered observation price. Every
+action begins from
+
+$$
+P_g=\operatorname{clamp}(P_s,P_f(1-\delta),P_f(1+\delta)).
+$$
+
+The action-specific prices are:
+
+| Action | Long | Short |
+|---|---:|---:|
+| Entry | $\max(P_g,P_f)$ | $\min(P_g,P_f)$ |
+| Voluntary exit | $\min(P_g,P_f)$ | $\max(P_g,P_f)$ |
+| Partial liquidation, backstop, take-profit, terminal snapshot | $P_g$ | $P_g$ |
+
+Entry and voluntary exit additionally require a caller-supplied acceptable
+price and deadline. The parameter $\delta$ creates a direct trade-off:
+
+- a small value limits same-transaction manipulation but delays recognition of
+  genuine jumps;
+- a large value improves responsiveness but permits more value transfer from a
+  temporary spot move.
+
+The correct value depends on executable pool depth and observation latency. It
+must not be inferred from volatility alone.
+
+## 8. Vault NAV and reserves
+
+For position-level marked PnL, let $X_i=U_i-F_i$, where $F_i=0$ in the base
+demo and denotes a future collected funding debit if funding is later enabled.
+Each trader selects $K_i$ no greater than the market ceiling. Define
+
+$$
+G=\sum_i\min(\max(X_i,0),K_i)
+$$
+
+as gross winning claims and
+
+$$
+R=\sum_i\min(\max(-X_i,0),M_i)
+$$
+
+as collectible losing PnL. For other funded obligations $R_o$, the reporting
+NAV is
+
+$$
+V=C+R-G-R_o.
+$$
+
+The cap by $M_i$ is essential. A trader with 100 USDC margin cannot be recorded
+as a 1,000 USDC vault asset merely because marked PnL is −1,000 USDC. Because
+$R$ is not collected cash, $V$ is a reporting and share-valuation quantity, not
+an admission budget.
+
+Maximum profit is reserved when a position opens:
+
+$$
+K_{total}+R_o=\sum_i K_i+R_o\le\rho C,\qquad 0<\rho<1.
+$$
+
+Free cash after the proposed position is
+
+$$
+C_{free}=\max(C-K_{total}-R_o,0).
+$$
+
+The position closes automatically when its guarded marked profit reaches $K_i$.
+This converts the unbounded long payoff into a bounded demo instrument and makes
+winner coverage directly testable. It should be described as a bounded
+perpetual, not silently presented as an uncapped contract. Fees and penalties
+reduce trader margin or payout and therefore cannot increase the reserved claim.
+
+For the fixed risk epoch, capital is admitted before trading begins. No deposit
+mints active shares and no redemption executes while any position or payout
+claim remains unsettled. Any queued deposit participates only in the next epoch,
+after all claims in the current epoch settle.
+
+## 9. Exposure capacity
+
+The market's post-trade gross open-interest cap is
+
+$$
+\mathrm{maxOI}=\min(\alpha C_{free},\ \beta P_gD_{lock,\delta}).
+$$
+
+The first term uses only unencumbered counterparty cash. The second connects the
+value at risk to durable price-venue depth. Both quantities are recomputed after
+including the proposed position and its reserve; a check using pre-trade state
+would reuse capital.
+
+The independent reserved-profit condition $K_{total}+R_o\le\rho C$ must also
+hold. Open-interest capacity cannot reuse cash already reserved for winning
+claims.
+
+Each position is also capped at a fraction $\gamma$ of `maxOI`:
+
+$$
+\mathrm{positionNotional}\le\gamma\,\mathrm{maxOI}.
+$$
+
+Depth must be measured from actual initialized liquidity across the configured
+price band. Only the protocol-controlled position locked for the complete epoch
+contributes to $D_{lock,\delta}$; removable external depth is excluded from the
+security budget. Current active liquidity multiplied by a hypothetical range is
+not an adequate substitute.
+
+## 10. Funding (disabled in the base demo)
+
+The base `v0.2-demo` fixes funding at zero. If a later version enables it, an
+illustrative rate is
+
+$$
+\dot f=k\frac{L-S}{L+S}.
+$$
+
+For elapsed time $\Delta t$, each position accrues a signed nominal obligation
+based on the rate applicable during that interval. It is included in health, but
+the receiving credit is recognized in $G$ only after cash is collected from the
+payer. No vault residual is transferred before collection.
+
+Required controls are:
+
+- maximum funding rate;
+- maximum accrual interval processed per call;
+- forced risk processing before funding debt reaches margin;
+- a persistent record of nominal unpaid debt, with the collectible amount
+  capped at remaining margin;
+- isolated cash accounting per market.
+
+An uncollectible remainder is a measured funding shortfall, not an asset and not
+an unfunded credit. Funding is intentionally outside the base demo's acceptance
+criteria.
+
+## 11. Statistical calibration
+
+A production study would estimate the probability that adverse movement outruns
+risk processing. If returns are approximated locally by volatility $\sigma$, a
+one-sided 99th-percentile diffusion move over time $T$ is
+
+$$
+\mu_{99}=2.326\,\sigma\sqrt{T}.
+$$
+
+For the previously discussed 80-minute interval, the corresponding moves are
+approximately:
+
+| Annualized volatility | 99th-percentile diffusion move |
+|---:|---:|
+| 80% | 2.30% |
+| 182% | 5.22% |
+| 286% | 8.21% |
+
+These figures exclude jumps, manipulation, liquidity removal, and observation
+delay; they are inputs to a model, not safe maintenance ratios.
+
+The earlier expression
+
+$$
+T(d)\approx\frac{N\tau}{\bar\lambda}\ln\frac{1}{1-d}
+$$
+
+describes an uncapped geometric chunk process. It is not valid as $d\to1$, when
+depth caps bind, when the queue is congested, or when active pool liquidity is
+zero. Calibration must restrict its domain and model those conditions directly.
+
+## 12. Evaluation plan
+
+The demo revision should be accepted only after the following properties are
+tested:
+
+1. segregated market cash always covers recorded trader margin;
+2. losing positions never contribute more than collectible margin to NAV;
+3. LP actions cannot reduce cash below required gross winning reserves;
+4. recognized profit for every position is bounded by its reserved $K_i$;
+5. a position below maintenance is eventually processed even after a prior
+   health-restoration pause;
+6. the same price path produces the same final balances regardless of close
+   order;
+7. temporary LP capital cannot capture a same-epoch liquidation transfer;
+8. price displacement required to extract one unit from the vault exceeds the
+   extractable value under configured depth caps.
+9. loss or unlock of the configured reference depth moves the market to
+   `CLOSE_ONLY` and blocks new exposure.
+
+Scenario tests should cover long and short symmetry, abrupt gaps, sparse swaps,
+all positions reaching their caps, delayed take-profit processing, multiple
+positions, attempted same-epoch LP actions, locked-depth failure, and fault-
+injected vault insolvency settlement. Fuzz and invariant testing should
+supplement the scripted hackathon narrative. Funding conservation and
+multi-market isolation are required before either feature enters a later scope;
+they are not claims of the single-market base demo.
+
+## 13. Selection rule
+
+For the hackathon, choose parameters that make the mechanism visible and keep
+all positions well inside prefunded limits. For any later deployment, select
+parameters only from a joint simulation of price paths, observation behavior,
+real pool depth, queue throughput, limited trader liability, and vault payout
+risk. Results from the lending version of the liquidation kernel are useful
+engineering evidence, but they do not validate a perpetual counterparty vault.

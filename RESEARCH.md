@@ -1,189 +1,231 @@
-# TruePerp — Research Report
+# TruePerp: Research Note
 
-This report is the background for [DESIGN.md](DESIGN.md): the evidence and reasoning that selected TruePerp's mechanism over every alternative. It proceeds the way the conclusion was actually reached: first what an oracle *does* for a perpetual and what the historical record says about each of those jobs failing (§1–2); then the impossibility result that forces every oracle-free design to deleverage actively, and the cash-settled corollary that makes active cheap (§3); the half-way house — internal TWAP pricing with event liquidations — and why the manipulation literature rules it out (§4); the full design space and a protocol-by-protocol reading, including the CEX lineage where all of this machinery was invented, the LP-as-house empirics, and the pricing theory (§5–6); manipulation economics replayed against the record's three great attacks (§7); the mathematics (§8); and, last because they are conclusions rather than premises, the properties, benefits, and drawbacks that emerge (§9). It is the perp companion to [TrueLend's RESEARCH.md](https://github.com/queenleoa/TrueLend/blob/main/RESEARCH.md); shared foundations are restated so this repository reads alone. Sources are linked inline and collected in §10.
+## Abstract
 
----
+TruePerp asks whether a perpetual market can use a Uniswap v4 spot pool as its native price reference while liquidating positions without selling an underlying asset. The proposed market is **pool-referenced**, **externally-oracle-free**, and **cash-settled**.
 
-## 1. What the oracle is doing in a perp, exactly
+Each market trades only the base/cash pair attached to its hook. The `v0.1` code interprets `currency0` as base and `currency1` as cash; `v0.2-demo` should store the economic orientation explicitly because Uniswap orders currencies by address. An ETH/USDC market therefore supports an ETH perpetual quoted and settled in USDC; it does not support arbitrary synthetic assets.
 
-The perpetual swap was invented at BitMEX in May 2016, and its founding insight was the **funding rate**: an expiry-less contract stays tethered to its underlying because whichever side's demand pushes the contract price (*mark*) away from the spot index pays the other side, continuously ([BitMEX](https://www.bitmex.com/blog/what-are-perpetual-futures)). Everything since is elaboration. The modern stack consumes an external price oracle in **four distinct jobs**, and separating them matters because they fail differently and are replaced differently:
+The spot pool and the risk pool have separate roles. Uniswap supplies an observable price path and a swap-driven clock. A market-specific PerpVault supplies counterparty capital. Liquidation reduces synthetic exposure through cash accounting, so it creates no forced spot order.
 
-1. **The index** — what is the "true" price? A feed aggregating exchange prints.
-2. **The mark anchor** — funding ∝ (mark − index) arbitrages the venue's own price back toward the index. The anchor consumes the index every funding interval.
-3. **The liquidation trigger** — margin checks value positions at the index or a mark/index blend; the trigger inherits the feed's latency, its manipulation surface (located at its *sources*, outside the protocol), and its listing bottleneck.
-4. **Settlement** — forced closes and deleveraging realize PnL at oracle-derived prices.
+The current `v0.1` contracts demonstrate this state machine but not a complete economic design. Instantaneous LP entry and exit, net and uncapped PnL accounting, removable spot depth, insufficient winner reserves, and the funding ledger invalidate stronger security claims. A coherent `v0.2-demo` should instead demonstrate one bounded, fully specified market with locked reference liquidity and committed vault capital.
 
-The record contains a clean catastrophe for each consumption point. For the **trigger and settlement**: on October 11, 2022, Avraham Eisenberg took large MNGO-PERP positions on Mango Markets against himself, then bought thin spot MNGO on the three exchanges feeding Mango's oracle — the reported price rose ~13× in about thirty minutes — and the protocol, valuing his *unrealized* perp PnL as withdrawable collateral at that oracle price, let him borrow out ~$116M of other users' deposits ([SEC](https://www.sec.gov/newsroom/press-releases/2023-13), [CFTC](https://www.cftc.gov/PressRoom/PressReleases/8647-23), [Halborn](https://www.halborn.com/blog/post/explained-the-mango-markets-and-attempted-aave-hacks-october-2022); he was convicted of fraud and manipulation in 2024 — [CoinDesk](https://www.coindesk.com/policy/2024/04/18/mango-markets-exploiter-avi-eisenberg-found-guilty-of-fraud-and-manipulation)). For the **entry door**: GMX v1 filled any size at the Chainlink price with zero impact, and in September 2022 a trader ran five ~$4–5M cycles through that door while pushing AVAX on the feed's thin sources, extracting ~$565k from the LPs ([Cointelegraph](https://cointelegraph.com/news/decentralized-exchange-gmx-suffers-565k-price-manipulation-exploit), [Neptune Mutual](https://neptunemutual.com/blog/decoding-gmxs-price-manipulation-exploit/)). Two protocols, two years apart, one lesson: **an oracle-priced door with no price impact converts source manipulation into a free option against whoever holds the other side** — and "the other side" was users' deposits both times.
+> **Research status.** TruePerp is a mechanism prototype, not a production-ready exchange. This note distinguishes properties demonstrated by the code from safeguards proposed for `v0.2-demo`.
 
-Now observe what happens when the venue's price *is* a real, arbitraged spot market — a Uniswap pool holding the actual asset, with the perp settling against that pool's own tick. Jobs 1 and 2 collapse: **mark ≡ index by construction.** There is no separate perp price to drift, and the pool is tethered to the global market by cross-venue arbitrage in the *underlying* — the most practiced convergence mechanism in the industry, not a protocol assumption. What survives of funding is a different question: **who carries the open-interest imbalance?** If longs outweigh shorts, someone is short the difference; in TruePerp that someone is the LP vault, and funding's remaining job is to price that carry — a skew-proportional rate paid by the crowded side (§8.3), the [Synthetix perps](https://docs.synthetix.io/exchange/perps-basics/funding) lineage with the oracle underneath deleted. Jobs 3 and 4 reduce to the problems TrueLend already solved for lending: a manipulation-hardened read of the pool's own history, and a liquidation the protocol performs itself.
+## 1. Research question
 
-The honest cost, stated before any benefit: a venue-native perp is a derivative *of that pool*. Its integrity is bounded by the pool's depth and arbitrage tightness, and its manipulation-resistant filter (§7) imposes a ~9-minute confirmation lag on banked profits. These are real trade-offs, priced deliberately, and §9 returns to them.
+The central question is:
 
-## 2. The event paradigm's own ledger
+> Can a spot AMM provide the reference price and liquidation clock for a separate cash-settled perpetual market, without an external oracle or forced spot sales?
 
-Before designing the alternative, take the measure of the incumbent. Liquidation-as-event has a distributional signature, visible at every scale of the historical record:
+This question contains three subproblems:
 
-- **The backstop ladder was born as a patch.** Huobi introduced auto-deleveraging in 2015; before that, exchanges socialized losses manually. BitMEX layered an insurance fund in front of ADL; the fund's size, not the mechanism's fairness, became the safety story ([BitMEX insurance fund FAQ](https://www.bitmex.com/blog/bitmex-insurance-fund-your-questions-answered)). On July 31, 2018, a single ~$416M BTC futures long on OKEx was force-liquidated into a book that could not absorb it; after the insurance fund, ~1,200 BTC of losses were **clawed back from every profitable trader on the platform at 17.7%** ([CoinDesk](https://www.coindesk.com/markets/2018/08/03/okex-confirms-9-million-clawback-after-enormous-bitcoin-future-fails), [OKX incident notice](https://www.okx.com/en-us/help/regarding-the-forced-liquidation-incident-on-jul-31-2018)). FTX's principal engineering boast was a liquidation engine that made clawbacks less likely ([FTX](https://ftx.medium.com/our-liquidation-engine-how-we-significantly-reduced-the-likelihood-of-clawbacks-67c1b7d19fdc)) — the genre's own admission of where its tail lives.
-- **The cascade is not a tail event; it is the mechanism at scale.** On October 10, 2025, a geopolitical headline triggered the largest liquidation day in crypto history: **$19B+ of leveraged positions destroyed, roughly nine times any previous single-day record, with $3.21B liquidated in a single minute** at 21:15 UTC and ~$9.89B inside fourteen hours ([FTI Consulting](https://www.fticonsulting.com/insights/articles/crypto-crash-october-2025-leverage-met-liquidity), [Amberdata](https://blog.amberdata.io/how-3.21b-vanished-in-60-seconds-october-2025-crypto-crash-explained-through-7-charts), [Forbes](https://www.forbes.com/sites/digital-assets/2025/10/13/cryptos-black-friday-inside-the-19-billion-market-meltdown/)). Funding rates had climbed from ~10% to ~30% annualized in the week before — leverage announcing itself — and collapsed to 2022-bear lows after ([CoinGecko](https://www.coingecko.com/learn/october-10-crypto-crash-explained)). Every liquidation in that minute was an *event*: a whole position, at the worst price, its sale feeding the next trigger.
-- **The house harvests the crash.** Hyperliquid's HLP vault — the best-run LP-as-house in the industry — booked an estimated **+$41.5M that same weekend**, and +$15M more from a single whale's ETH liquidation in January 2026 ([CoinGecko HLP analysis](https://www.coingecko.com/learn/hyperliquid-hlp-vault-analysis)). That is not an accusation; it is the paradigm's accounting identity. Event liquidation transfers wealth at maximum speed, at the worst moment, from forced sellers to the counterparty pool and the ADL'd winners. A mechanism that liquidates *gradually and reversibly* is, among other things, choosing to transfer radically less at exactly those moments — a design decision with a cost to the house that §9 makes explicit.
+1. **Price reference:** what observable state defines entry, exit, margin, and liquidation?
+2. **Counterparty risk:** who pays a profitable trader, and under what solvency constraint?
+3. **Liquidation:** how is unsafe exposure reduced without creating a reflexive market order?
 
-TrueLend's answer for lending — chunked, pausable, in-range liquidation — was built against this record. The question this repository answers is whether the same kernel carries to margin trading. The next two sections show the carry is not just possible but *cleaner* than the lending case.
+TruePerp does not attempt to provide cross-margin, arbitrary index listing, an order book, or a guarantee that a thin AMM is a reliable market. It tests a particular decomposition—spot venue, accounting hook, and isolated risk vault—and makes the resulting tradeoffs explicit.
 
-## 3. Why deleveraging cannot be passive — and why here it is free
+### 1.1 Terminology
 
-The tempting construction — deposit margin as pool liquidity across the liquidation band and let ordinary trading unwind the position — fails on arithmetic, not engineering. A Uniswap position holds, as a function of price, more of whichever token the market is selling: passive in-range liquidity **buys** the falling asset and **sells** the rising one. It is structurally the mean-reversion side of every trade; as an order type it offers exactly a take-profit and a buy-limit. Unwinding a losing long requires *selling the base as it falls*; a losing short, *buying as it rises*:
+“Oracleless” is convenient but imprecise. The protocol still reads and filters prices; it derives them from the attached pool rather than an external reporter network. This note therefore uses **externally-oracle-free** or **pool-referenced**.
 
-| Position | Sours when | Unwinding requires | Passive liquidity does |
+“Underlying” means the base asset in the attached pair, not an asset selected independently by a trader. In an ETH/USDC market:
+
+- the traded exposure is ETH;
+- position size is measured in ETH units;
+- margin, fees, profit, and loss are measured in USDC; and
+- the ETH/USDC pool price is the market reference.
+
+Supporting BTC, SOL, or another asset requires another base/cash pool and another PerpVault. Supporting an arbitrary off-pool index would require an index adapter or oracle and would be a different protocol design.
+
+## 2. System decomposition
+
+![TruePerp system architecture](docs/assets/architecture.png)
+
+| Component | Holds | Function | Does not do |
 |---|---|---|---|
-| long base | base **falls** | **sell** base into weakness | *buys* it ✗ |
-| short base | base **rises** | **buy** base into strength | *sells* it ✗ |
+| Uniswap v4 pool | base and cash liquidity | establishes the spot tick and produces observations on swaps | guarantee trader PnL |
+| TruePerp hook | trader cash margin and position state | opens, marks, funds, deleverages, and closes positions | hold base for every synthetic position |
+| PerpVault | isolated cash capital | takes counterparty exposure and pays realized wins | set the reference price |
+| Traders | posted cash margin | choose long or short synthetic exposure | own a claim on spot-pool reserves |
 
-Liquidation — of loan collateral or perp margin, identically — is always the stop-side trade, the one trade passive liquidity cannot express. TrueLend's research develops the proof and its v4-specific corners (why return-delta hooks cannot fake "negative liquidity") [[TrueLend](https://github.com/queenleoa/TrueLend/blob/main/RESEARCH.md)]. Every oracle-free margin system must therefore *execute*: some code path actively reduces the position.
+The Uniswap LP pool is **not** the counterparty. PerpVault LPs are the economic house; spot LPs provide ordinary swap liquidity and the market state against which the derivative is measured.
 
-For a cash-settled perp the conclusion sharpens into the design's central structural advantage. TrueLend's active step is a real trade — collateral sold into the pool, paying fees and impact (the $s$ term of its risk model). TruePerp's active step is **marking a slice of exposure to the current tick and settling the difference in cash**: no trade occurs, no liquidity is consumed, no impact is caused. Three consequences:
+This differs from a GMX-style market, where the pool holding long and short backing assets is itself the counterparty to traders [1]. TruePerp isolates price formation from risk underwriting. That produces a legible balance sheet, but safe open interest then depends on two independent resources: vault capital and persistent spot depth.
 
-1. **The execution-cost term vanishes** from the safety inequality (§8.5) — what dominates TrueLend's stable-tier budget is structurally zero here.
-2. **Deleveraging adds no sell pressure to the price being watched.** The reflexive channel behind §2's ledger — liquidation flow moving the price that triggers more liquidation — is not rate-limited, as in TrueLend; for the deleveraging itself it is *absent*. A TruePerp market experiencing October 10, 2025 would have paced *bookkeeping*, not fed the spiral.
-3. **Depth survives only as a governor.** Chunk sizes stay proportional to measured in-range depth because thin books move ticks cheaply — per-crossing intervention should be small where price motion is cheap. A pacing choice, not a solvency constraint.
+### 2.1 Why not make spot LPs the house?
 
-## 4. The middle path that does not work: internal TWAP pricing with event liquidations
+Spot reserves are already committed to market making. Their token composition changes with swaps, concentrated ranges can become inactive, and LPs can withdraw independently of perp positions. Treating the same reserves as freely available for both spot execution and derivative payouts would create ambiguous seniority.
 
-Between "import an oracle" and "build TrueLend's filter plus gradual execution" lies an obvious middle: price the perp off the pool's **time-weighted average price** — no external feed — and keep conventional event liquidations. It has been tried ([Rage Trade](https://github.com/RageTrade/core) built perps on Uniswap v3 this way; Overlay generalized "trade any feed" with TWAPs among its inputs; Perpetual v2 kept an external index but put its mark on real v3 liquidity), and the manipulation literature explains why it is not enough.
+An isolated vault gives the derivative an explicit loss-bearing balance sheet and prevents one market's deficit from consuming another market's cash. Its weakness is equally explicit: a cash-only vault has no natural hedge when traders are net long, so finite cash cannot support an unlimited long payoff.
 
-**TWAP manipulation is a studied, costed attack.** Uniswap's own post-merge analysis found two-block TWAP manipulation "still prohibitively expensive on top pairs," but **three-plus-block manipulation feasible for a validator with significant market share** — proof-of-stake lets a multi-block proposer set a price at the end of one block and correct it two blocks later, exposed to no arbitrage in between ([Uniswap blog](https://blog.uniswap.org/uniswap-v3-oracles)). Euler's cost model makes the arithmetic concrete: hitting a target on a 15-minute TWAP (~72 blocks) needs only a ~2× spot displacement *held for the window*, with cost ≈ arbitrage-plus-fees bled per block — small in shallow pools ([Euler](https://github.com/euler-xyz/uni-v3-twap-manipulation/blob/master/cost-of-attack.tex)); Mackinga et al. reach the same "easier done than said" verdict experimentally ([ePrint 2022/445](https://eprint.iacr.org/2022/445.pdf)). Uniswap's proposed remedy is the **truncated oracle** — cap how far any single observation can move the record — which is exactly the primitive TrueLend hardened and TruePerp reuses.
+### 2.2 Comparison with adjacent designs
 
-**And even a perfect TWAP fails the two jobs a perp needs.** As a *door price*, an average is stale in both directions: honest fast moves hand a free option to informed flow trading against yesterday's mean, which is why serious designs quote at fresh prices and defend them rather than quote at averages. As a *trigger*, a TWAP changes nothing about the event downstream of it — the position still closes all at once into whatever book exists, and §2's cascade ledger is unmoved. The middle path, in other words, fixes the oracle's *provenance* while keeping its *latency* and keeping the event. The lesson TruePerp draws: use the truncated, median-filtered record **as a one-sided bound** (the worse-of doors — never a clearing price that can be stale in your favor), use live spot where continuity makes staleness harmless (chunk marking, §7), and spend the real effort where the middle path spends none — on replacing the event.
-
-## 5. The design space, mapped
-
-Every architecture answers §1's four jobs somewhere. Populated from documentation and post-mortems:
-
-| | index | mark | funding driver | liq. trigger | liq. execution | bad-debt path |
-|---|---|---|---|---|---|---|
-| BitMEX (the archetype) | exchange index | own book | mark − index | mark/index | event (engine) | insurance → ADL (once, clawbacks) |
-| dYdX v4 | oracle | own book | mark − index | oracle | event | insurance → deleveraging |
-| Hyperliquid | oracle blend | own book | premium, cap 4%/h | mark/oracle | event → HLP inherits → socialized ADL | HLP, then winners |
-| Jupiter (Solana) | Pyth | = index, zero-impact | borrow/utilization | oracle | event (vs JLP) | JLP pool |
-| GMX v1/v2 | Chainlink | = index, zero-impact | v2: skew-priced fees | oracle | event (vs pool) | GLP/GM pool |
-| Drift | Pyth | JIT auction → AMM | mark − index | oracle | event (JIT/AMM) | insurance → socialized haircut |
-| Perpetual v1 | oracle | virtual AMM | mark − index, insurance-paid under skew | oracle+mark | event | insurance (drained, halted 2022) |
-| Synthetix v2 | oracle | index + skew impact | **skew velocity** | oracle | event | stakers |
-| Rage Trade / TWAP family | pool TWAP | TWAP | vs TWAP | TWAP | event | pool/vault |
-| Contango ("cPerps") | inherited (money markets) | spot | money-market rates | inherited oracles | inherited loan liquidation | underlying's path |
-| InfinityPools | **none** | spot (v3) | LP-range rental rate | **none** | none — worst case pre-funded | none (capital-heavy by construction) |
-| Numoen | **none** | own curve | convexity funding | **none** | none — fully collateralized options | none (option form) |
-| **TruePerp** | **the settlement pool itself** | ≡ index | **skew** (imbalance carry → LPs) | **the tick** | **gradual, chunked, cash-settled, self-terminating** | **declared LP shortfall, trader floor at zero** |
-
-Reading the columns: every oracle-consuming row liquidates in events and terminates in an insurance fund, a pooled counterparty, or the winners' pockets; the TWAP row internalizes the index but keeps the event and adds documented multi-block fragility; the oracle-free rows before TruePerp *avoid* liquidation by pre-paying it — InfinityPools buys the exit liquidity upfront ([Messari](https://messari.io/report/infinitypools-new-leverage-mechanics): oracle-free and liquidation-free, at documented cost to capital efficiency and scale), Numoen sells fully-collateralized convexity ([Numoen](https://medium.com/numoen/perpetual-options-for-defi-821351c0a24f)), Contango outsources the whole problem to oracle-based money markets ([Contango](https://medium.com/contango-xyz/contango-the-looping-layer-of-defi-8183bf8ae045) — TrueLend's LeverageRouter industrialized, oracles included). The bottom row is the cell the matrix leaves empty: settlement-venue index, tick trigger, and an execution column that §3 proved had to be active — made free by cash settlement, made *gradual* by TrueLend's kernel.
-
-## 6. Prior art, read closely
-
-**BitMEX and the CEX lineage teach what the machinery is for.** Funding was invented to peg an expiry-less contract (§1); the insurance fund and ADL were invented because event liquidation into real books *fails routinely*; the OKEx clawback shows the ladder's true last rung — other traders' money (§2). Every DEX perp inherits this stack with the exchange swapped for a protocol. The stack is not wrong; it is the rational patch-set *given* the event. Remove the event and most of the ladder has nothing to catch.
-
-**Mango Markets teaches that paper PnL is a weapon.** The exploit needed two properties: oracle sources thinner than the protocol's balance sheet, and **unrealized perp PnL spendable as collateral at oracle prices** (§1). Its lesson is imported here as an invariant, not a mitigation: in TruePerp, wins *do not exist* until realized through a worse-of close, paid in cash from a vault whose exposure is capped to its equity. There is no cross-margin credit against marks, so there is nothing for a manipulated mark to unlock.
-
-**Hyperliquid teaches both the state of the art and its two open wounds.** Its liquidation waterfall is the genre's cleanest — book close at mark, then below ⅔ maintenance the **HLP backstop vault inherits the position**, then socialized ADL against the most profitable opposite side ([docs](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/auto-deleveraging), [OtterSec's reverse-engineering](https://osec.io/blog/hyperliquid-risk-engine/)); recent theory shows socialized ADL cannot be made fair to the winners it taxes ([arXiv:2512.01112](https://arxiv.org/html/2512.01112v2)). The March 26, 2025 JELLY attack hit the *inheritance* wound: a trader self-liquidated a $4–5M JELLY short **into** HLP, pumped JELLY on external venues, put the vault $13.5M underwater on a position it had been handed, and was stopped only by a validator vote force-settling at $0.0095 against a ~$0.50 market ([CoinDesk](https://www.coindesk.com/markets/2025/03/26/hyperliquid-delists-jellyjelly-after-vault-squeezed-in-usd13m-tussle), [OAK Research](https://oakresearch.io/en/analyses/investigations/hyperliquid-jelly-attack-context-vulnerability-team-solution), [Halborn](https://www.halborn.com/blog/post/explained-the-hyperliquid-hack-march-2025)). Three legs: the backstop inherits live positions; settlement referenced prices from venues other than where the position lived; and the final backstop was governance. §7 replays the attack against TruePerp leg by leg.
-
-**Jupiter and GMX teach the LP-as-house shape at scale — door included.** Jupiter Perps fills any size at the Pyth mid with zero slippage against the JLP pool, which earns 75% of fees ([Jupiter docs via Eco](https://eco.com/support/en/articles/15083164-jupiter-perps-fees-leverage-how-jlp-works)); it is GMX's shape at today's largest scale, hardened by caps and analyzed as resistant to a JELLY-style attack ([Blockworks](https://blockworks.com/news/jupiter-solana-risk-vault-hyperliquid-attack)) — but the zero-impact oracle door is load-bearing in both, and §1's record shows what that door costs when sources thin out. GMX v2's evolution (borrow fees and price-impact terms keyed to skew) is convergent evidence that **skew-priced carry is the natural funding form** when mark-pegging is not the job.
-
-**Drift teaches how much engineering the event paradigm needs.** Its stack — JIT auctions matching takers to makers, an AMM as backstop liquidity, then an insurance fund, then a socialized haircut on profitable counterparties ([Drift docs](https://docs.drift.trade/protocol/about-v3/jit-faq), [architecture](https://eco.com/support/en/articles/14801189-drift-protocol-perps-architecture-explained)) — is four layers of mitigation for the single fact that positions close all at once. TruePerp's counter-position is one layer: don't.
-
-**Perpetual v1 teaches that funding must have a natural payer.** Its vAMM had virtual, fixed liquidity; under sustained skew the *insurance fund* paid funding to the crowded side, draining until a chaotic CREAM liquidation (May 2022, $2M+ bad debt) forced a halt; v2 rebuilt on real liquidity ([Perp support](https://support.perp.com/), [vAMM post-mortems](https://wesl.ee/The_Problem_With_vAMM_Perpetuals/)). Imported directly: TruePerp's funding residual flows **to** the vault by construction, never from it, and its mark is a market with real inventory.
-
-**Synthetix teaches skew management as a discipline.** Perps v2's funding-rate *velocity* (the rate drifts while imbalance persists) plus skew-scaled execution impact kept its markets near-neutral so stakers collected fees rather than warehoused direction ([SIP-279](https://github.com/Synthetixio/SIPs/blob/master/content/sips/sip-279.md), [dynamic funding](https://blog.synthetix.io/synthetix-perps-dynamic-funding-rates/)). TruePerp v0.1 ships rate-∝-skew; velocity funding is the documented refinement (PARAMETERS §5).
-
-**The LP-as-house empirics say the model works — and locate its P&L.** GLP earned ~$22M from net trader losses on top of $217M+ of distributed fees across GMX v1's life ([stats.gmx.io](https://stats.gmx.io/), [OnChainTimes](https://www.onchaintimes.com/perp-dex-vaults-a-look-under-the-hood/)); HLP has made ~$136.9M cumulative since 2023 at double-digit APY and Sharpe ratios near 2, with TVL peaking at $603.9M before falling ~55% in the post-JELLY year ([CoinGecko](https://www.coingecko.com/learn/hyperliquid-hlp-vault-analysis), [Datawallet](https://www.datawallet.com/crypto/hyperliquid-hlp-explained)). Two readings matter here. LPs *will* underwrite trader flow when the deal is legible — the premise TruePerp's vault stands on. And the house's profits concentrate in liquidation events (+$41.5M in the October 2025 weekend; +$15M from one whale's ETH liquidation): the event paradigm pays its LPs *in crashes*. A gradual mechanism forgoes most of that harvest deliberately — TruePerp's LPs are paid in fees, penalties, and funding residual instead, a steadier and smaller stream against a smaller and declared tail. That exchange is a choice, not a free lunch; §9 owns it.
-
-**The theory teaches what funding *is*.** Paradigm's everlasting options generalize the funding leg — pay (mark − payoff) each period and any claim becomes perpetual ([Everlasting Options](https://www.paradigm.xyz/2021/05/everlasting-options), [Everything Is A Perp](https://www.paradigm.xyz/writing/everything-is-a-perp)); power perpetuals price convexity the same way ([Power Perps](https://www.paradigm.xyz/2021/08/power-perpetuals)); and Ackerer–Hugonnier–Jermann give the rigorous pricing of futures-that-never-expire, funding spread and all ([Mathematical Finance, 2026](https://onlinelibrary.wiley.com/doi/10.1111/mafi.70018)). In that frame TruePerp's funding is the degenerate — and honest — case: with mark ≡ index there is no peg premium left to pay; what remains priced is pure inventory carry, which is why skew (the inventory) is the right and only argument.
-
-**The v4 hook space** contains early perp and leverage hooks (perp-trading hooks, auction-managed leverage, LP-recycling margin) catalogued in [awesome-uniswap-hooks](https://github.com/fewwwww/awesome-uniswap-hooks) — none yet with a production liquidation mechanism. The kernel TruePerp reuses — deployed, audited internally, parameter-modelled, and crash-replayed on the lending side — is the piece that space is missing. **LLAMMA and Panoptic**, the gradual-conversion and internal-median ancestors, arrive through TrueLend's kernel; its research covers both in depth.
-
-## 7. Manipulation economics, replayed against the record
-
-Assume the post-merge adversary: a proposer of consecutive blocks sets the pool's spot price at the end of one block and restores it at the top of the next, exposed to no arbitrage, paying only fees — plus everything §4's TWAP literature grants. The design assumes spot can lie briefly, and asks what each historical attack buys against it.
-
-**The GMX/Jupiter door, replayed.** There is no zero-impact door to walk through. Entries price at the worse-of {truncated median, spot, recent raw extremes} *against the opener*, exits mirror against the closer, and the only price an attacker can influence is the settlement pool's own — moved through its real depth, bleeding fees and arbitrage. The truncation (±9,116 ticks per observation), median-of-9, and widen-only extremes mean a lie must be held across many minutes to enter the record, at which point it is a price. The symmetric tax: honest fast profits also wait ~9 minutes for confirmation. TruePerp charges manipulation and momentum the same toll, and the GMX exploit's five zero-cost cycles simply have no analog.
-
-**Mango, replayed.** The exploit needed unrealized PnL spendable at a manipulated mark. Here unrealized PnL is not spendable at any mark: wins exist only when realized through a worse-of close, are paid in cash from the vault, and the vault's total exposure is capped to a fraction of its own equity. Manipulating the pool 13× for thirty minutes — through real liquidity, against arbitrage, past the filter — would cost more than the pool contains and unlock nothing that isn't already bounded by the OI cap.
-
-**JELLY, replayed leg by leg.** *Leg one — hand the house a bomb*: TruePerp's backstop never inherits a position; ADL and force-closes realize cash and delete, so LP exposure to any single position is its remaining notional, shrinking every chunk. *Leg two — inflate it elsewhere*: settlement and manipulation are the same venue; pumping JELLY on other exchanges moves nothing here until arbitrage moves *this* pool, at which point the move is real, was paid for through this pool's depth, and the worse-of doors and OI cap have already priced it. *Leg three — force governance to settle*: there is no discretionary settlement; the waterfall is code ending in a recorded LP shortfall with a trader floor at zero. Nothing to vote on also means nothing to be bailed out by — LPs underwrite the declared tail and only that.
-
-**October 10, 2025, replayed.** A 9×-record cascade meets a market where deleveraging *trades nothing*: positions inside their runways shed notional as bookkeeping at whatever the pool prints; the pool's price is set by spot flow and arbitrage, not by liquidation sales; gap-throughs past bankruptcy backstop into recorded LP shortfalls rather than clawbacks or ADL'd winners. TruePerp does not prevent a crash — it declines to amplify one, and it settles the aftermath at a real market's prices with the losses pinned to the party that sold insurance.
-
-**Forcing a victim's ADL** buys, per manipulated block, at most `MAX_CHUNKS_PER_SWAP` bounded chunks of one position marked to the pushed price — penalties to LPs, fully pausable on restoration, nothing purchasable by the attacker (a chunk is a victim→vault cash transfer, not an asset). Pushing an entire runway (§8.4) means moving a real market by the full maintenance margin and holding it, to capture a shortfall that lands on LPs, not the attacker. **Funding farming** improves the very skew it is paid for carrying, on a filtered price, inside the OI cap. **Timing the LP door** fails because vault equity marks at the median and redemptions are bounded by realized cash.
-
-**The residual, named plainly.** All of the above bounds price *lies*. Real capital moving a thin pool's *true* price is a price move, and TruePerp settles against reality — JELLY's pump was, after Binance listed it, "real" too. A venue-native protocol inherits its venue's quality; the OI cap proportional to LP equity is that inheritance turned into a sizing rule, and PARAMETERS.md turns it into numbers per tier.
-
-## 8. Mathematical reference
-
-**8.1 Equity and the runway.** For a long of size $B$ (base), entry $E$, margin $M$, per-base margin $\mu = M/B$, bankruptcy $P_{bk} = E - \mu$ (short: $E + \mu$):
-$$
-\mathrm{Eq}(P) = M + (P-E)B = (P - P_{bk})\,B \equiv \delta B ,
-$$
-linear in the distance-to-bankruptcy $\delta$. Maintenance $\mathrm{Eq} \geq m P B$ places the range start at $P_{start} = P_{bk}/(1-m)$ (short: $/(1+m)$); the runway's relative width is ≈ $m$.
-
-**8.2 Equity invariance and self-termination.** Closing a chunk $c$ at price $P$ conserves equity,
-$$
-\mathrm{Eq}' = (B-c)\,\delta' = B\,\delta = \mathrm{Eq},
-$$
-so only penalties and funding consume it, while the maintenance requirement $mP(B-c)$ falls each chunk. Health rises monotonically at constant price and crosses 1 after shedding fraction $r^\* = 1 - \delta/(mP) = d$ (the depth into the runway), up to a penalty correction $O(\pi d/m)$. Corollaries: ADL terminates unaided (the engine checks health before every chunk); ranges fixed at open are conservative (deleveraging moves the true boundary away from the registered trigger); episode mechanism-cost is bounded by $\tfrac{m}{4}\, d \cdot \mathrm{notional}$ — the quarter-gap penalty cap inherited from TrueLend's model with $m$ in the LT-gap role.
-
-**8.3 Funding.** With open interest $L, S$ (base) and filtered price $p$:
-$$
-\dot f = p\,k\,\frac{L-S}{L+S}, \qquad \mathrm{cum}_{long} \mathrel{+}= \dot f dt,\quad \mathrm{cum}_{short} \mathrel{-}= \dot f dt,
-$$
-lazily settled per position; the crowded side pays, the thin side receives, the residual $|\dot f|\,|L-S|$ accrues to the vault that carries the imbalance. Empirical location: CEX baseline interest is 0.01%/8h (~11%/yr); market-wide funding ran ~10%→30% annualized in the week before October 10, 2025, then collapsed; Hyperliquid caps its premium rate at 4%/hour. $k = 100\%/\mathrm{yr}$ at *full* skew prices typical 20–40% skews at 20–40%/yr — inside the observed band, above hedge cost. In the Ackerer–Hugonnier–Jermann frame, with mark ≡ index the peg premium is identically zero and only inventory carry remains — skew is the correct and only argument.
-
-**8.4 Cost to force a backstop.** Traversing a runway of width $m$ against constant one-sided in-range depth $X$ (base units) commits ≈ $X m/2$ base-equivalents held against arbitrage for the pacing-vs-filter duration, plus fees and bleed — with direct capture zero (the shortfall lands on the vault; the victim's margin precedes it there). Manipulation pays only through an offsetting position, bounded by the OI cap relative to the equity absorbing it.
-
-**8.5 The maintenance-margin inequality.** An episode entered at depth $d$ self-terminates after $T(d) \approx \frac{N\tau}{\bar\lambda}\ln\frac{1}{1-d}$; safety requires, for all $d \in (0,1)$:
-$$
-(1-d)\,m \;\gtrsim\; z_{99}\,\sigma\sqrt{T(d)} + \pi(T)\,d + f\,T(d),
-$$
-with **no execution term**. Worked per-tier numbers and the leverage ceilings $\lambda_{max} = 1/\mathrm{im} \le 1/(2m)$ are PARAMETERS.md §4; the major tier's ~8–12× cross-checks independently against TrueLend's replay-validated 5% gap and its looped-leverage ceiling of 10.3×.
-
-## 9. What emerges: properties, benefits, drawbacks
-
-The point of §§1–8 is that the following are not design assertions; each is the residue of a specific failure or result above.
-
-**Properties (each traceable to evidence).**
-- *No zero-impact door* — entries and exits at worse-of over the venue's own filtered history (← GMX 2022, Jupiter's structure, §1/§6).
-- *Paper PnL is inert* — no credit against unrealized marks; wins exist only at realized, worse-of closes (← Mango, §6/§7).
-- *The backstop never inherits a position* — it realizes cash and deletes (← JELLY leg one, §6/§7).
-- *Settlement venue = manipulation venue* — there is no "elsewhere" to inflate against (← JELLY leg two; Mango's oracle-sources).
-- *No socialized ADL, no clawbacks, no insurance fund, no discretionary settlement* — the tail is a recorded LP shortfall with a trader floor at zero (← OKEx 2018, Hyperliquid's ladder, arXiv impossibility, JELLY leg three).
-- *Deleveraging trades nothing* — the cascade channel is absent, not damped (← §3's corollary against §2's ledger).
-- *Self-termination* — a position sheds ≈ its runway-depth and keeps the rest; the mechanism cannot grind a survivor to dust (← the invariance lemma, §8.2).
-- *Funding prices inventory, not a peg* — skew is its only argument, and the residual flows to the party carrying the imbalance (← Perp v1's payer-less drain; Synthetix's discipline; AHJ's frame).
-
-**Benefits, earned by those properties.** Listing needs no feed — any v4 spot pool is a perp market at initialization, which is precisely the long tail oracles cannot serve. Solvency logic consumes no input the protocol doesn't verify. Trader downside is bounded, gradual, reversible, and cheap in mechanism terms (penalties ≤ m/4 on churned notional versus whole-position event haircuts). The LP deal is legible end to end: every income term and the entire tail are on-chain observables — the lesson of GLP/HLP's success applied with the opacity removed.
-
-**Drawbacks, priced rather than hidden.** The ~9-minute filter is a real tax on fast profit-taking; traders wanting instant banked exits at spot are choosing a different trust model, and should. A venue-native perp inherits its venue: a thin pool makes a weak market, the OI cap (book ≤ a fraction of LP equity) is that inheritance made explicit, and it *bounds growth* in exactly the way Jupiter's and Hyperliquid's uncapped books are not bounded. LPs forgo the crash-harvest that makes event-paradigm vaults spectacular in violent weeks (+$41.5M weekends do not happen here) in exchange for steadier, smaller income against a smaller, declared tail — some LPs will rationally prefer the other trade. Funding-by-skew does not anchor a basis to any external market, because there is no external market in the contract's own terms; cross-venue perp arbitrageurs get no mark-index leg to trade, only the spot pool's ordinary one. And the whole construction stands on one pool's arbitrage tightness — which is a smaller assumption than an oracle network's honesty, but it is not zero, and PARAMETERS.md prices it per tier rather than waving at it.
-
-## 10. Sources
-
-**Incidents.** Mango: [SEC](https://www.sec.gov/newsroom/press-releases/2023-13) · [CFTC](https://www.cftc.gov/PressRoom/PressReleases/8647-23) · [Halborn](https://www.halborn.com/blog/post/explained-the-mango-markets-and-attempted-aave-hacks-october-2022) · [CoinDesk (conviction)](https://www.coindesk.com/policy/2024/04/18/mango-markets-exploiter-avi-eisenberg-found-guilty-of-fraud-and-manipulation). GMX: [Cointelegraph](https://cointelegraph.com/news/decentralized-exchange-gmx-suffers-565k-price-manipulation-exploit) · [Neptune Mutual](https://neptunemutual.com/blog/decoding-gmxs-price-manipulation-exploit/) · [CoinDesk](https://www.coindesk.com/markets/2022/09/19/defi-trader-nets-over-500k-by-using-dex-gmx-to-manipulate-avalanche-token). JELLY: [CoinDesk](https://www.coindesk.com/markets/2025/03/26/hyperliquid-delists-jellyjelly-after-vault-squeezed-in-usd13m-tussle) · [OAK Research](https://oakresearch.io/en/analyses/investigations/hyperliquid-jelly-attack-context-vulnerability-team-solution) · [Halborn](https://www.halborn.com/blog/post/explained-the-hyperliquid-hack-march-2025) · [Arkham](https://info.arkm.com/research/jellyjelly-exploit-on-hyperliquid). OKEx 2018: [CoinDesk](https://www.coindesk.com/markets/2018/08/03/okex-confirms-9-million-clawback-after-enormous-bitcoin-future-fails) · [OKX notice](https://www.okx.com/en-us/help/regarding-the-forced-liquidation-incident-on-jul-31-2018) · [contemporary analysis](https://medium.com/@Austerity_Sucks/the-415-million-elephant-in-the-room-okex-futures-unfilled-btcusd-liquidation-aa601b188005). Oct 10 2025: [FTI](https://www.fticonsulting.com/insights/articles/crypto-crash-october-2025-leverage-met-liquidity) · [Amberdata](https://blog.amberdata.io/how-3.21b-vanished-in-60-seconds-october-2025-crypto-crash-explained-through-7-charts) · [Forbes](https://www.forbes.com/sites/digital-assets/2025/10/13/cryptos-black-friday-inside-the-19-billion-market-meltdown/) · [CoinGecko](https://www.coingecko.com/learn/october-10-crypto-crash-explained). Perp v1: [support docs](https://support.perp.com/) · [vAMM analysis](https://wesl.ee/The_Problem_With_vAMM_Perpetuals/) · [FinanceFeeds](https://financefeeds.com/vamm-model-perpetual-futures-virtual-liquidity/).
-
-**Mechanisms.** BitMEX: [perp guide](https://www.bitmex.com/app/perpetualContractsGuide) · [insurance-fund FAQ](https://www.bitmex.com/blog/bitmex-insurance-fund-your-questions-answered) · [perps history](https://www.bitmex.com/blog/what-are-perpetual-futures) · [FTX on clawbacks](https://ftx.medium.com/our-liquidation-engine-how-we-significantly-reduced-the-likelihood-of-clawbacks-67c1b7d19fdc). Hyperliquid: [ADL docs](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/auto-deleveraging) · [OtterSec](https://osec.io/blog/hyperliquid-risk-engine/). Jupiter: [JLP mechanics](https://eco.com/support/en/articles/15083164-jupiter-perps-fees-leverage-how-jlp-works) · [Blockworks risk analysis](https://blockworks.com/news/jupiter-solana-risk-vault-hyperliquid-attack). Drift: [JIT docs](https://docs.drift.trade/protocol/about-v3/jit-faq) · [architecture](https://eco.com/support/en/articles/14801189-drift-protocol-perps-architecture-explained). Synthetix: [funding docs](https://docs.synthetix.io/exchange/perps-basics/funding) · [SIP-279](https://github.com/Synthetixio/SIPs/blob/master/content/sips/sip-279.md) · [dynamic funding](https://blog.synthetix.io/synthetix-perps-dynamic-funding-rates/). LP-house empirics: [stats.gmx.io](https://stats.gmx.io/) · [OnChainTimes vaults](https://www.onchaintimes.com/perp-dex-vaults-a-look-under-the-hood/) · [CoinGecko HLP](https://www.coingecko.com/learn/hyperliquid-hlp-vault-analysis) · [Datawallet](https://www.datawallet.com/crypto/hyperliquid-hlp-explained).
-
-**TWAP & oracle manipulation.** [Uniswap v3 oracles in PoS](https://blog.uniswap.org/uniswap-v3-oracles) · [Euler cost-of-attack](https://github.com/euler-xyz/uni-v3-twap-manipulation/blob/master/cost-of-attack.tex) · [Mackinga et al., ePrint 2022/445](https://eprint.iacr.org/2022/445.pdf) · [Rage Trade core](https://github.com/RageTrade/core).
-
-**Theory.** [Everlasting Options (Paradigm)](https://www.paradigm.xyz/2021/05/everlasting-options) · [Power Perpetuals](https://www.paradigm.xyz/2021/08/power-perpetuals) · [Everything Is A Perp](https://www.paradigm.xyz/writing/everything-is-a-perp) · [Ackerer–Hugonnier–Jermann, *Perpetual Futures Pricing*, Mathematical Finance 2026](https://onlinelibrary.wiley.com/doi/10.1111/mafi.70018) · [Autodeleveraging: Impossibilities and Optimization (arXiv:2512.01112)](https://arxiv.org/html/2512.01112v2).
-
-**Oracle-free family & venue.** [InfinityPools (Messari)](https://messari.io/report/infinitypools-new-leverage-mechanics) · [Numoen](https://medium.com/numoen/perpetual-options-for-defi-821351c0a24f) · [Contango](https://medium.com/contango-xyz/contango-the-looping-layer-of-defi-8183bf8ae045) · [Three Sigma perp landscape](https://threesigma.xyz/blog/options/defi-perpetuals-landscape-guide) · [Uniswap v4 hooks](https://docs.uniswap.org/contracts/v4/concepts/hooks) · [awesome-uniswap-hooks](https://github.com/fewwwww/awesome-uniswap-hooks) · [TrueLend](https://github.com/queenleoa/TrueLend) (impossibility proof, truncated oracle, kernel, calibration, crash-week replay).
-
----
-
-## Appendix — What is reused from TrueLend, exactly
-
-| Kernel piece | Role there | Role here | Changed? |
+| Property | Conventional oracle perp | GMX-style pool counterparty | TruePerp research design |
 |---|---|---|---|
-| `ChunkMath.chunkSize` | paces collateral sales | paces notional reduction | no |
-| `ChunkMath.penaltyBps` | time-scaled penalty, capped at ¼ of the LT gap | same, with $1{-}m$ in the LT role → cap $= m/4$ | no |
-| `LiqRangeMath` (convert, inRange, pastRange, depthBps, rangeDepthTokens) | range placement & valuation | price conversion, range tests, depth governor | no; range *endpoints* computed from margin arithmetic instead of `liquidationRange` |
-| `TruncatedOracle` | worse-of at origination | worse-of at both doors; median for funding, LP equity, reason-2 | no |
-| `TriggerIndex` | boundary bitmap, 32-per-tick cap | identical | no |
-| `VaultFactory` device | vault creation code out of the hook | `PerpVaultFactory` | pattern reused |
-| audit rules (reward carved from penalty; config validation; walk budgets) | — | adopted as invariants from day one | — |
+| Reference | external feed or exchange index | external feed | attached spot pool and its history |
+| Counterparty | book, AMM, or backstop | multi-asset market pool | separate cash PerpVault |
+| Tradable asset | any supported index | indexes backed by the pool | only the pool's base/cash pair |
+| Execution | book, AMM, or oracle-derived quote | oracle quote plus impact rules | guarded pool-referenced accounting price |
+| Liquidation | sale, transfer, or event close | event close against the pool | partial cash settlement; no spot trade |
+| Main dependency | oracle integrity and execution liquidity | oracle integrity and pool solvency | pool depth/history and vault solvency |
+| Long-side hedge | venue-dependent | base asset held by the pool | none in a cash-only vault |
 
-The reuse is at the address level on deployed networks (linked external libraries are on-chain singletons): the liquidation kernel was built once, survived an internal audit, a parameter model, and a six-crash-week historical replay on the lending side, and is consumed here without a line of it changing.
+This is a structural comparison, not a claim that one design dominates. An external-oracle design would permit arbitrary indexes but would abandon the research question. A GMX-like asset pool provides a natural base/cash hedge but combines market-making and counterparty capital. A virtual AMM would create a separate derivative price that must be anchored. GMX documentation, for example, describes WETH and USDC as the backing assets for an ETH/USD market [1]. TruePerp chooses the pool-referenced, separate-vault alternative to study a smaller, isolated mechanism.
+
+## 3. Position and cash-flow model
+
+Let a position have base size $B$, entry price $E$, reference price $P$, and cash margin $M$. Ignoring fees and funding:
+
+$$
+\operatorname{Eq}_{long}(P)=M+(P-E)B,
+\qquad
+\operatorname{Eq}_{short}(P)=M+(E-P)B.
+$$
+
+The trader has limited liability: realized losses cannot exceed posted margin. The vault receives collected losses and fees and pays realized profits. Those two directions are not symmetric:
+
+- when theoretical trader loss exceeds margin, the vault fails to collect part of an expected gain; but
+- when trader profit exceeds vault cash, the protocol cannot honor an actual payment obligation.
+
+The current code's `totalShortfall` records the first case. It does not solve the second case, which is **winner insolvency**.
+
+A finite cash vault cannot guarantee an uncapped long payoff over an unbounded price domain. For a long, $(P-E)B$ grows without bound as $P$ rises. An entry-time open-interest cap limits initial notional but not the later claim.
+
+A coherent market must therefore do at least one of the following:
+
+1. hedge net exposure with base assets or an external venue;
+2. recapitalize or socialize losses after vault exhaustion;
+3. cap each position's maximum profit and reserve that amount; or
+4. state that payouts are undercollateralized and define a loss waterfall.
+
+For `v0.2-demo`, option 3 is the clearest hackathon choice. Each position selects a maximum counterparty profit $K_i$ no greater than the market ceiling, closes automatically at that bound, and reserves the same amount of vault cash until its payout settles. The profit cap excludes the return of the trader's own remaining margin; fees and penalties can reduce payout but cannot enlarge the vault claim. For physical cash $C$, aggregate caps $K=\sum_iK_i$, and other funded obligations $R_o$, the only unencumbered admission capital is $C_{free}=\max(C-K-R_o,0)$. Neither uncollected trader losses nor unused portions of an existing reserve may be reused. The result is capital-inefficient, but payout coverage becomes a testable invariant instead of an assumption.
+
+## 4. Why liquidation is cash-settled and partial
+
+A conventional liquidation sells collateral, transfers a live position, or closes it through a book. That execution can move the same market whose price triggered it. During stress, liquidation flow can therefore worsen the price and trigger further liquidation.
+
+TruePerp positions are synthetic and already denominated in cash. The hook can reduce a position from $B$ to $B-c$, realize PnL on chunk $c$, and transfer only cash between trader margin and the vault. No base token is bought or sold.
+
+At a fixed price, closing a chunk preserves pre-penalty equity:
+
+$$
+M' = M + \operatorname{PnL}(c),
+\qquad
+\operatorname{Eq}'(P)=\operatorname{Eq}(P).
+$$
+
+The maintenance requirement falls because remaining notional is smaller. If maintenance is $mPB$, repeated reductions can restore health even when price is unchanged. This is the useful property of gradual auto-deleveraging (ADL): reduce the requirement rather than sell an asset to rebuild collateral.
+
+The process is not reversible in the strict sense. An executed chunk permanently removes exposure and realizes PnL. The **episode** is pausable: if price recovers and the remainder becomes healthy, further chunks can stop.
+
+Penalties weaken the self-restoring property. If current equity ratio is $q=\operatorname{Eq}/(PB)$, maintenance is $m$, and the penalty on closed notional is $\pi<m$, the required fraction at a fixed price is
+
+$$
+r \geq \frac{m-q}{m-\pi}.
+$$
+
+Pacing, penalty, and liquidation-range width must therefore be calibrated together. A deep breach can still require a complete close.
+
+## 5. Price construction
+
+Using only the current tick makes valuable actions cheap to manipulate in a shallow pool. Using only a long TWAP delays legitimate price changes and can offer stale execution. TruePerp instead experiments with a truncated observation history and conservative “worse-of” prices for trader-initiated actions.
+
+This is not manipulation-proof. Work on Uniswap oracles shows that attack cost depends strongly on wide-range liquidity, window length, and block control; multi-block manipulation remains relevant [2][3]. A filtered price exchanges responsiveness for resistance.
+
+> A TruePerp market is only as credible as the depth, persistence, and arbitrage quality of its attached spot pool.
+
+For `v0.2-demo`, let $P_g$ clamp spot to a configured band around the filtered price $P_f$. Long entries use $\max(P_g,P_f)$ and short entries use $\min(P_g,P_f)$; voluntary exits reverse those choices. Partial liquidation, backstop, take-profit, and terminal settlement use $P_g$. Voluntary actions also require deadlines and acceptable-price bounds. A liquidation breach should persist or receive a second confirmation before transferring material value. The filter is an experimental parameter to measure, not a substitute for an economic security budget.
+
+## 6. Failure analysis of `v0.1`
+
+![TruePerp security boundaries](docs/assets/security-boundaries.svg)
+
+The `v0.1` contracts implement the happy path, but the following assumptions fail under adversarial ordering or large price moves.
+
+| `v0.1` assumption | Failure mode | Research implication |
+|---|---|---|
+| LPs deposit and redeem immediately | an attacker can buy most shares, manipulate a victim into loss, then redeem a share of the transfer | commit capital before its risk cohort forms and lock it until claims expire |
+| NAV subtracts net uncapped trader PnL | losers offset winners even when losses exceed margin or settle later | reserve gross positive liabilities and cap collectible loss at posted margin |
+| entry OI is capped by current equity | a later long-price rise can create claims above vault cash | reserve maximum payout, hedge exposure, or define socialization |
+| current in-range liquidity is durable | Uniswap LPs can remove depth while perps remain open | lock demo liquidity and halt new OI below a depth floor |
+| an arbitrary token pair has the expected units | code fixes `currency0` as base and uses 18-decimal base math; tests use 18/18 mocks | record price orientation, normalize decimals, and allowlist demo tokens |
+| raw spot is safe for forced settlement | a transient tick can transfer victim margin to the vault | confirm breaches and bound settlement marks |
+| aggregate funding may move before collection | pooled margins can be drained while payer debt is later clipped, creating unmatched credits | settle per position and credit only collected cash |
+| restored positions need no new trigger | deterioration inside stale boundaries may not restart ADL | recompute triggers and include pending funding in health |
+
+The LP and spot-price rows combine into a direct JIT-liquidity risk: an attacker can enter the vault shortly before causing a forced transfer and later exit with part of it. A withdrawal delay raises carrying cost but does not assign PnL to the correct capital cohort. Production would need epochs or locked tranches; a demo can use a fixed, non-redeemable vault epoch.
+
+The NAV issue is an ordering problem as well as a valuation problem. A solvent calculation must assume winners close before losing accounts pay and must treat trader losses beyond segregated margin as uncollectible. Net paper PnL is not withdrawable cash.
+
+Reference depth is also external state. The current hook does not prevent Uniswap LPs from removing liquidity, and a v4 hook is part of a pool's key. TruePerp must seed and lock a protocol-controlled wide-range position in its own hook-enabled pool rather than assume it inherits an existing pool's depth [4]. Removable external liquidity does not increase the demo's security budget.
+
+Funding requires a real ledger. TruePerp has no independently traded perp mark to pull toward an index, so funding's only proposed role is to price vault inventory and encourage balanced open interest. The base demo therefore sets funding to zero. A future version must retain nominal payer obligations for processing, cap collectible amounts at remaining margin, and recognize receiver credit only after cash is collected; any uncollectible remainder is a recorded shortfall, not an asset.
+
+## 7. Proposed `v0.2-demo`
+
+The `v0.2-demo` claim should be narrower than “permissionless oracleless perps”:
+
+> A bounded-payout ETH perpetual, settled in USDC, that references a dedicated ETH/USDC v4 pool and reduces unsafe positions through cash-only partial deleveraging.
+
+The demo should enforce and display these constraints:
+
+1. **One allowlisted market.** Fix the base, cash token, decimals, fee tier, and hook-enabled pool.
+2. **Dedicated reference liquidity.** Seed wide-range ETH/USDC liquidity and lock it for the demo period.
+3. **Fixed vault epoch.** Accept USDC capital before the epoch; disallow new shares and redemption while any position or payout claim remains unsettled.
+4. **Bounded payouts.** Require a profit cap or take-profit boundary and reserve every position's maximum cash claim.
+5. **Gross liability accounting.** Never rely on a losing position to fund a winner; count at most posted margin as collectible.
+6. **Dual capacity limit.** Bound new exposure by free vault reserves and a conservative measure of persistent spot depth.
+7. **Guarded actions.** Add deadlines and price bounds; confirm liquidation breaches and bound forced-settlement marks.
+8. **Correct ADL lifecycle.** Include all obligations in health and re-register boundaries after every partial liquidation or recovery.
+9. **No demo funding.** Set the rate to zero; collection-backed funding is a future extension.
+10. **Explicit pause state.** Stop new risk if observations, depth, or free reserves fall below configured floors while preserving closes.
+
+These restrictions reduce composability and capital efficiency, but each corresponds to a concrete v0.1 failure. The research contribution becomes the venue/vault separation and cash-only partial liquidation—not a claim that all perpetual-market risk has disappeared.
+
+The interface should separate realized cash, unrealized PnL, reserved winner claims, collectible trader loss, and free vault capital. That accounting story is more valuable in a research demo than a broad feature set.
+
+## 8. Evaluation criteria
+
+The concept should be judged by falsifiable properties rather than test count:
+
+- **cash conservation:** every realized transfer has one debit and one credit;
+- **winner coverage:** reserved claims never exceed non-withdrawable vault cash;
+- **limited trader liability:** no path debits more than segregated margin;
+- **cohort integrity:** later capital cannot capture an earlier position's PnL;
+- **funding exclusion:** the base demo cannot accrue or transfer funding;
+- **ADL liveness and pause:** an unsafe position is reduced, and a recovered position stops losing exposure;
+- **trigger renewal:** deterioration after partial recovery restarts ADL;
+- **depth response:** new OI stops below the persistent-liquidity floor; and
+- **manipulation budget:** measured trigger cost exceeds maximum extractable value under demo parameters.
+
+Manipulation cost must be measured on the seeded pool configuration. Headline TVL is insufficient because concentrated liquidity may be absent along the relevant price path.
+
+## 9. Limitations and open questions
+
+Bounded payouts are solvent only if reserves cannot be withdrawn or counted twice. The model is less capital-efficient than a hedged asset pool and is more accurately called a bounded perpetual than a general-purpose perp.
+
+Open research questions include:
+
+- Can epoch accounting provide useful LP liquidity without reopening the JIT attack?
+- Would hedging net skew through the spot pool reintroduce liquidation-driven price impact?
+- Which observation filter best balances transient manipulation and genuine gap moves?
+- How should durable depth be measured across concentrated-liquidity ranges?
+- Can a base/cash vault offer uncapped profit without an opaque socialized-loss path?
+- Is funding necessary when capacity limits already price scarce vault capital?
+
+These are future research directions, not features that `v0.2-demo` needs to pretend to solve.
+
+## 10. Conclusion
+
+TruePerp is best understood as a pool-native derivative experiment. An attached Uniswap market defines one base/cash exposure; the pool supplies reference state, while an isolated vault—not the spot LPs—underwrites PnL. Cash-settled partial liquidation is the distinguishing mechanism because it can reduce leverage without producing a forced spot trade.
+
+Removing an external oracle does not remove the need for manipulation resistance, durable liquidity, or a solvent counterparty. `v0.1` does not yet meet those requirements. A bounded, locked, single-market `v0.2-demo` can still make a strong hackathon demonstration because its claims are narrow, its liabilities are measurable, and its central mechanism can be observed end to end.
+
+## References
+
+1. [GMX documentation: Providing liquidity](https://docs.gmx.io/docs/providing-liquidity/).
+2. Adams, Wan, and Zinsmeister, [*Uniswap v3 TWAP Oracles in Proof of Stake*](https://blog.uniswap.org/uniswap-v3-oracles), 2022.
+3. Mackinga, Nadahalli, and Wattenhofer, [*TWAP Oracle Attacks: Easier Done than Said?*](https://eprint.iacr.org/2022/445.pdf), 2022.
+4. [Uniswap v4 documentation: Hooks](https://docs.uniswap.org/contracts/v4/concepts/hooks).

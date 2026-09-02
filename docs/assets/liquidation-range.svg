@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="540" viewBox="0 0 1200 540" role="img" aria-labelledby="title desc">
+  <title id="title">Progressive partial liquidation of a long position</title>
+  <desc id="desc">A price axis shows the healthy region above maintenance, a partial-liquidation band between maintenance and bankruptcy, and the backstop region below bankruptcy.</desc>
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef3f9"/>
+    </linearGradient>
+    <linearGradient id="band" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f5b45a"/>
+      <stop offset="1" stop-color="#f0d679"/>
+    </linearGradient>
+    <marker id="arrowDark" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#26364d"/>
+    </marker>
+    <style>
+      .t { font: 700 28px Inter, ui-sans-serif, system-ui, sans-serif; fill: #17243a; }
+      .h { font: 700 18px Inter, ui-sans-serif, system-ui, sans-serif; fill: #17243a; }
+      .b { font: 400 15px Inter, ui-sans-serif, system-ui, sans-serif; fill: #3c4d65; }
+      .s { font: 500 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #52647d; }
+      .mono { font: 600 15px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #23344c; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="540" rx="24" fill="url(#bg2)"/>
+  <text x="600" y="50" text-anchor="middle" class="t">Long-position risk regions</text>
+  <text x="600" y="78" text-anchor="middle" class="b">Price falls from right to left; executed reductions are permanent, while future reductions can pause.</text>
+
+  <rect x="80" y="145" width="285" height="118" rx="14" fill="#f5dddd" stroke="#d37b7b"/>
+  <rect x="365" y="145" width="355" height="118" fill="url(#band)" stroke="#c9923e"/>
+  <rect x="720" y="145" width="400" height="118" rx="14" fill="#dcefe7" stroke="#69a98d"/>
+  <text x="222" y="185" text-anchor="middle" class="h">Backstop region</text>
+  <text x="222" y="214" text-anchor="middle" class="b">Equity exhausted or payout rule invoked</text>
+  <text x="222" y="239" text-anchor="middle" class="s">A defined insolvency outcome is required</text>
+  <text x="542" y="185" text-anchor="middle" class="h">Partial-liquidation band</text>
+  <text x="542" y="214" text-anchor="middle" class="b">Reduce exposure toward target health</text>
+  <text x="542" y="239" text-anchor="middle" class="s">Pause future reductions if health recovers</text>
+  <text x="920" y="185" text-anchor="middle" class="h">Healthy region</text>
+  <text x="920" y="214" text-anchor="middle" class="b">No forced position reduction</text>
+  <text x="920" y="239" text-anchor="middle" class="s">Trader may close voluntarily</text>
+
+  <line x1="90" y1="310" x2="1110" y2="310" stroke="#26364d" stroke-width="3" marker-end="url(#arrowDark)"/>
+  <text x="1114" y="316" class="b">price</text>
+  <line x1="365" y1="280" x2="365" y2="348" stroke="#9d4141" stroke-width="3"/>
+  <line x1="720" y1="280" x2="720" y2="348" stroke="#8c671d" stroke-width="3"/>
+  <line x1="1000" y1="280" x2="1000" y2="348" stroke="#39775c" stroke-width="3"/>
+  <text x="365" y="374" text-anchor="middle" class="mono">P_bk</text>
+  <text x="365" y="397" text-anchor="middle" class="s">bankruptcy boundary</text>
+  <text x="720" y="374" text-anchor="middle" class="mono">P_maint</text>
+  <text x="720" y="397" text-anchor="middle" class="s">maintenance boundary</text>
+  <text x="1000" y="374" text-anchor="middle" class="mono">E</text>
+  <text x="1000" y="397" text-anchor="middle" class="s">entry price</text>
+
+  <path d="M965 118 C870 95, 760 104, 675 128 C605 148, 548 135, 500 121" fill="none" stroke="#516a91" stroke-width="3" stroke-dasharray="7 7" marker-end="url(#arrowDark)"/>
+  <text x="742" y="112" text-anchor="middle" class="s">adverse price path</text>
+
+  <rect x="260" y="435" width="680" height="65" rx="14" fill="#ffffff" stroke="#a9b7ca"/>
+  <text x="600" y="461" text-anchor="middle" class="mono">required reduction: r ≥ m·d / (m − π)</text>
+  <text x="600" y="486" text-anchor="middle" class="s">m = maintenance ratio · d = range depth · π = penalty rate; feasible before full close only when d &lt; 1 − π/m</text>
+</svg>
