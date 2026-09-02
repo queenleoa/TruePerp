@@ -1,93 +1,110 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
-  <title id="title">TruePerp market structure and security boundaries</title>
-  <desc id="desc">A Uniswap base-cash pool supplies price observations to the TruePerp engine. Traders post margin to the engine. A separate cash vault is the counterparty and is funded by vault liquidity providers.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="title desc">
+  <title id="title">TruePerp physical market architecture</title>
+  <desc id="desc">A trader uses a stateless router to create physical long and short positions held by the TruePerp hook. A WETH vault funds shorts, a USDC vault funds longs, and the Uniswap pool executes entries, exits, and liquidation chunks.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#08111f"/>
+      <stop offset="0" stop-color="#07101f"/>
       <stop offset="1" stop-color="#111b31"/>
     </linearGradient>
-    <linearGradient id="pool" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#182a51"/>
-      <stop offset="1" stop-color="#213d68"/>
+    <linearGradient id="hook" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#15264b"/>
+      <stop offset="1" stop-color="#173f57"/>
     </linearGradient>
-    <linearGradient id="engine" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#162c46"/>
-      <stop offset="1" stop-color="#17485a"/>
+    <linearGradient id="pool" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#262356"/>
+      <stop offset="1" stop-color="#153c58"/>
     </linearGradient>
     <linearGradient id="vault" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2d283f"/>
-      <stop offset="1" stop-color="#4a3458"/>
+      <stop offset="0" stop-color="#252c45"/>
+      <stop offset="1" stop-color="#34304f"/>
     </linearGradient>
-    <marker id="arrowCyan" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L0,6 L9,3 z" fill="#63d8ef"/>
+    <marker id="cyanArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#64d9ef"/>
     </marker>
-    <marker id="arrowGold" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L0,6 L9,3 z" fill="#e6ba62"/>
+    <marker id="violetArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#a89bff"/>
+    </marker>
+    <marker id="goldArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#e8bd65"/>
     </marker>
     <style>
       .title { font: 700 28px Inter, ui-sans-serif, system-ui, sans-serif; fill: #f5f8ff; }
-      .heading { font: 700 19px Inter, ui-sans-serif, system-ui, sans-serif; fill: #f5f8ff; }
-      .body { font: 400 15px Inter, ui-sans-serif, system-ui, sans-serif; fill: #c7d3e8; }
-      .small { font: 500 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #aebdd5; }
-      .tag { font: 650 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #eef4ff; }
-      .box { stroke: #6d82a7; stroke-width: 1.5; }
+      .subtitle { font: 400 15px Inter, ui-sans-serif, system-ui, sans-serif; fill: #b7c6df; }
+      .heading { font: 700 18px Inter, ui-sans-serif, system-ui, sans-serif; fill: #f5f8ff; }
+      .body { font: 400 14px Inter, ui-sans-serif, system-ui, sans-serif; fill: #c8d5e8; }
+      .small { font: 600 12px Inter, ui-sans-serif, system-ui, sans-serif; fill: #aebed8; }
+      .token { font: 700 13px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #f7f9ff; }
+      .box { stroke: #687da5; stroke-width: 1.5; }
+      .lineC { fill: none; stroke: #64d9ef; stroke-width: 2.5; }
+      .lineV { fill: none; stroke: #a89bff; stroke-width: 2.5; }
+      .lineG { fill: none; stroke: #e8bd65; stroke-width: 2.5; }
     </style>
   </defs>
 
-  <rect width="1200" height="640" rx="24" fill="url(#bg)"/>
-  <text x="600" y="54" text-anchor="middle" class="title">One market, one underlying, two distinct pools</text>
-  <text x="600" y="82" text-anchor="middle" class="body">Example: ETH/USDC spot pool → synthetic ETH perpetual → USDC settlement</text>
+  <rect width="1200" height="700" rx="24" fill="url(#bg)"/>
+  <text x="600" y="48" text-anchor="middle" class="title">Physical positions; explicit counterparties</text>
+  <text x="600" y="76" text-anchor="middle" class="subtitle">The hook automates risk. The pool executes inventory. The vaults only extend credit.</text>
 
-  <rect x="65" y="145" width="290" height="250" rx="20" class="box" fill="url(#pool)"/>
-  <circle cx="132" cy="215" r="32" fill="#7b78ff" opacity="0.92"/>
-  <path d="M132 178 L108 216 L132 230 L156 216 Z M132 234 L108 220 L132 257 L156 220 Z" fill="#f5f2ff" opacity="0.9"/>
-  <text x="180" y="202" class="heading">Reference pool</text>
-  <text x="180" y="228" class="body">Uniswap v4 ETH/USDC</text>
-  <text x="92" y="292" class="body">• Holds real spot liquidity</text>
-  <text x="92" y="320" class="body">• Produces tick observations</text>
-  <text x="92" y="348" class="body">• Supplies swap callbacks</text>
-  <text x="92" y="376" class="body">• Does not pay trader PnL</text>
+  <rect x="54" y="126" width="230" height="155" rx="18" class="box" fill="#132038"/>
+  <text x="169" y="160" text-anchor="middle" class="heading">Trader + router</text>
+  <text x="80" y="197" class="body">• USDC margin</text>
+  <text x="80" y="224" class="body">• long / short direction</text>
+  <text x="80" y="251" class="body">• deadline + price limit</text>
 
-  <rect x="455" y="145" width="290" height="250" rx="20" class="box" fill="url(#engine)"/>
-  <rect x="493" y="184" width="48" height="48" rx="10" fill="#54c8df" opacity="0.9"/>
-  <path d="M505 208 H529 M517 196 V220" stroke="#092033" stroke-width="4" stroke-linecap="round"/>
-  <text x="562" y="202" class="heading">TruePerp engine</text>
-  <text x="562" y="228" class="body">Risk and settlement logic</text>
-  <text x="482" y="292" class="body">• Custodies trader margin</text>
-  <text x="482" y="320" class="body">• Records long/short exposure</text>
-  <text x="482" y="348" class="body">• Applies guarded prices</text>
-  <text x="482" y="376" class="body">• Reduces unsafe positions</text>
+  <rect x="385" y="112" width="430" height="214" rx="22" class="box" fill="url(#hook)"/>
+  <text x="600" y="148" text-anchor="middle" class="heading">TruePerpHook — custody and liquidation engine</text>
+  <rect x="416" y="174" width="174" height="116" rx="14" fill="#192b4b" stroke="#7c75cc"/>
+  <text x="503" y="202" text-anchor="middle" class="heading">Long ETH</text>
+  <text x="440" y="235" class="body">holds</text>
+  <rect x="494" y="218" width="70" height="25" rx="12" fill="#665ad0"/>
+  <text x="529" y="236" text-anchor="middle" class="token">WETH</text>
+  <text x="440" y="270" class="body">owes USDC</text>
 
-  <rect x="845" y="145" width="290" height="250" rx="20" class="box" fill="url(#vault)"/>
-  <rect x="883" y="182" width="52" height="52" rx="9" fill="#d6a84d" opacity="0.95"/>
-  <circle cx="909" cy="208" r="13" fill="none" stroke="#4a3458" stroke-width="4"/>
-  <text x="956" y="202" class="heading">Counterparty vault</text>
-  <text x="956" y="228" class="body">USDC liquidity</text>
-  <text x="872" y="292" class="body">• Pays realized trader wins</text>
-  <text x="872" y="320" class="body">• Receives losses and fees</text>
-  <text x="872" y="348" class="body">• Bears net market exposure</text>
-  <text x="872" y="376" class="body">• Must remain solvent</text>
+  <rect x="610" y="174" width="174" height="116" rx="14" fill="#173246" stroke="#55aeca"/>
+  <text x="697" y="202" text-anchor="middle" class="heading">Short ETH</text>
+  <text x="634" y="235" class="body">holds</text>
+  <rect x="688" y="218" width="70" height="25" rx="12" fill="#247e98"/>
+  <text x="723" y="236" text-anchor="middle" class="token">USDC</text>
+  <text x="634" y="270" class="body">owes WETH</text>
 
-  <path d="M355 235 H447" fill="none" stroke="#63d8ef" stroke-width="3" marker-end="url(#arrowCyan)"/>
-  <text x="400" y="218" text-anchor="middle" class="small">price + activity</text>
-  <path d="M745 265 H837" fill="none" stroke="#e6ba62" stroke-width="3" marker-end="url(#arrowGold)"/>
-  <path d="M837 300 H745" fill="none" stroke="#e6ba62" stroke-width="3" marker-end="url(#arrowGold)"/>
-  <text x="791" y="246" text-anchor="middle" class="small">losses, fees</text>
-  <text x="791" y="326" text-anchor="middle" class="small">winning PnL</text>
+  <rect x="916" y="105" width="230" height="108" rx="18" class="box" fill="url(#vault)"/>
+  <text x="1031" y="139" text-anchor="middle" class="heading">USDC debt vault</text>
+  <text x="1031" y="168" text-anchor="middle" class="body">funds long positions</text>
+  <text x="1031" y="192" text-anchor="middle" class="small">credit risk only</text>
 
-  <rect x="140" y="444" width="220" height="54" rx="27" fill="#20314d" stroke="#61769b"/>
-  <text x="250" y="477" text-anchor="middle" class="tag">Spot depth locked for epoch</text>
-  <path d="M250 444 V404" stroke="#8aa0c5" stroke-width="2"/>
+  <rect x="916" y="231" width="230" height="108" rx="18" class="box" fill="url(#vault)"/>
+  <text x="1031" y="265" text-anchor="middle" class="heading">WETH debt vault</text>
+  <text x="1031" y="294" text-anchor="middle" class="body">funds short positions</text>
+  <text x="1031" y="318" text-anchor="middle" class="small">credit risk only</text>
 
-  <rect x="490" y="444" width="220" height="54" rx="27" fill="#173a49" stroke="#4c9caf"/>
-  <text x="600" y="477" text-anchor="middle" class="tag">Traders post cash margin</text>
-  <path d="M600 444 V404" stroke="#63d8ef" stroke-width="2"/>
+  <rect x="212" y="421" width="776" height="178" rx="28" class="box" fill="url(#pool)"/>
+  <text x="600" y="460" text-anchor="middle" class="heading">Uniswap v4 WETH / USDC pool</text>
+  <text x="600" y="488" text-anchor="middle" class="subtitle">price observations · callbacks · entry/exit execution · liquidation execution</text>
+  <circle cx="488" cy="540" r="34" fill="#6d60df" opacity="0.92"/>
+  <path d="M488 514 L470 540 L488 550 L506 540 Z M488 554 L470 543 L488 570 L506 543 Z" fill="#f4f1ff"/>
+  <circle cx="712" cy="540" r="34" fill="#d8e2f0" stroke="#7990ae"/>
+  <text x="712" y="548" text-anchor="middle" style="font:700 27px Inter, sans-serif;fill:#30445f">$</text>
+  <path d="M536 540 H662" class="lineC" marker-end="url(#cyanArrow)"/>
+  <path d="M664 558 H538" class="lineV" marker-end="url(#violetArrow)"/>
 
-  <rect x="840" y="444" width="220" height="54" rx="27" fill="#3b3048" stroke="#9c77a8"/>
-  <text x="950" y="477" text-anchor="middle" class="tag">Vault LPs underwrite PnL</text>
-  <path d="M950 444 V404" stroke="#c49acc" stroke-width="2"/>
+  <path d="M284 203 H376" class="lineC" marker-end="url(#cyanArrow)"/>
+  <text x="330" y="190" text-anchor="middle" class="small">construct</text>
+  <path d="M916 158 H824" class="lineC" marker-end="url(#cyanArrow)"/>
+  <path d="M916 284 H824" class="lineV" marker-end="url(#violetArrow)"/>
+  <text x="870" y="145" text-anchor="middle" class="small">USDC debt</text>
+  <text x="870" y="271" text-anchor="middle" class="small">WETH debt</text>
 
-  <rect x="65" y="545" width="1070" height="55" rx="14" fill="#0c1729" stroke="#405373"/>
-  <text x="600" y="568" text-anchor="middle" class="small">Security condition</text>
-  <text x="600" y="590" text-anchor="middle" class="body">Profit reserves and exposure must fit free vault cash and locked reference depth.</text>
+  <path d="M503 326 C503 360 470 379 470 413" class="lineV" stroke-dasharray="7 6" marker-end="url(#violetArrow)"/>
+  <path d="M697 326 C697 360 730 379 730 413" class="lineC" stroke-dasharray="7 6" marker-end="url(#cyanArrow)"/>
+  <text x="600" y="369" text-anchor="middle" class="small">paced exact-input liquidation chunks</text>
+
+  <path d="M988 522 C1055 522 1080 440 1080 348" class="lineC" marker-end="url(#cyanArrow)"/>
+  <path d="M988 505 C1110 483 1125 278 1045 220" class="lineC" marker-end="url(#cyanArrow)"/>
+  <text x="1088" y="410" class="small">net output repays</text>
+  <text x="1088" y="427" class="small">matching vault</text>
+  <path d="M920 599 C920 632 842 637 790 606" class="lineG" marker-end="url(#goldArrow)"/>
+  <text x="936" y="648" text-anchor="end" class="small">penalty donated to active LPs</text>
+
+  <rect x="106" y="631" width="532" height="42" rx="12" fill="#0c1729" stroke="#3e5275"/>
+  <text x="372" y="657" text-anchor="middle" class="body">No house vault pays marked PnL; residual physical inventory is trader equity.</text>
 </svg>

@@ -1,128 +1,196 @@
 # TruePerp
 
-**A pool-referenced, cash-settled perpetual-futures prototype for Uniswap v4.**
+**Expiry-free leveraged long and short positions with keeperless, gradual
+liquidation on Uniswap v4.**
 
-![TruePerp separates the price-setting spot pool from the cash counterparty vault](docs/assets/architecture.png)
+![TruePerp physical market architecture](docs/assets/architecture.png)
 
-TruePerp studies a narrow question: can a perpetual market use the price of its
-own Uniswap v4 pool and reduce unsafe positions without sending liquidation
-orders back through that pool?
+TruePerp represents leverage with real assets and real debt. A position is not
+an unbacked cash promise against a house vault:
 
-The prototype answers with a split architecture. A Uniswap pool supplies price
-observations and swap callbacks. A separate cash vault acts as counterparty to
-traders. Position reductions are cash-settled bookkeeping operations, so they do
-not create forced spot sales.
+- an ETH long holds WETH and owes USDC;
+- an ETH short holds USDC and owes WETH; and
+- when either position becomes unsafe, the hook converts its collateral into
+  its debt asset through the ETH/USDC pool in small, paced swaps.
 
-This repository is a hackathon research prototype. The contracts demonstrate
-the mechanism; they are not production-ready and should not hold real funds.
+The demo accepts USDC margin for either direction. A long swaps that margin and
+its borrowed USDC into WETH; a short adds the USDC received from selling
+borrowed WETH to its margin.
 
-## What does an ETH/USDC market trade?
+Ordinary pool activity drives that process. The swap that moves the pool into a
+position's liquidation range calls the hook, and the hook can execute a bounded
+liquidation chunk before the transaction finishes. If price exits the registered
+range on its safe side, future chunks pause; a later adverse crossing resumes
+them. A permissionless, rewarded `poke` provides a fallback for quiet markets;
+no privileged keeper receives the position or chooses its execution price.
 
-An ETH/USDC TruePerp market trades one instrument: a **synthetic ETH perpetual
-quoted and settled in USDC**.
+This repository is a hackathon research prototype. It is intended to make the
+mechanism concrete and testable, not to hold production funds.
 
-- `ETH` is the base asset whose price exposure the trader takes.
-- `USDC` is margin, settlement currency, and vault capital.
-- A long gains when the ETH price rises; a short gains when it falls.
-- No ETH changes hands when a position opens or closes.
+## Architecture at a glance
 
-The same pool cannot price an unrelated BTC or SOL perpetual. Each underlying
-requires its own approved base/cash market, such as BTC/USDC or SOL/USDC. Without
-an external oracle, TruePerp can only list an asset that has a sufficiently
-credible spot pool of its own.
+```mermaid
+flowchart LR
+    T[Trader] -->|margin + direction| R[TruePerp router]
+    R --> H[TruePerp hook]
 
-> **Implementation note:** `v0.1` hard-codes `currency0` as base and assumes
-> 18-decimal base units; its tests use two 18-decimal mock tokens. The
-> `v0.2-demo` design records pool orientation and normalizes token decimals
-> before claiming compatibility with an actual WETH/USDC pair.
+    QV[Zero-rate USDC debt vault] -->|funds long debt| R
+    BV[Zero-rate WETH debt vault] -->|funds short debt| R
 
-## Is the Uniswap pool the counterparty?
+    R <-->|entry and exit swaps| U[Uniswap v4<br/>WETH / USDC pool]
+    H -->|liquidation swaps| U
+    U -->|beforeSwap / afterSwap| H
+    H -->|net chunk proceeds repay debt| QV
+    H -->|net chunk proceeds repay debt| BV
+    H -->|liquidation penalty donation| U
+```
 
-No. The design contains two economically distinct pools:
+The hook is the liquidation engine. The two lending vaults only fund debt legs:
+the USDC vault lends to longs and the WETH vault lends to shorts. Uniswap LPs
+are the immediate counterparties to every real trade and earn ordinary swap
+fees plus liquidation-penalty donations. The relevant debt vault's support
+capital bears any residual bad debt after position collateral is exhausted.
 
-![TruePerp market structure](docs/assets/security-boundaries.svg)
+In v0 that support capital is protocol-seeded and the two debt vaults charge a
+zero borrow rate. This is a deliberate mechanism-isolation choice, not a claim
+that production leverage can be financed for free: keeping debt principal fixed
+also keeps the registered liquidation ticks valid. Adding carry requires
+debt-aware trigger re-registration as the borrow index changes.
 
-| Component | Function | Bears trader PnL? |
+There is no separate GMX-style pool that pays marked trader profit. A profitable
+position is paid by the inventory it already holds: appreciated WETH for a long,
+or the USDC proceeds retained after borrowed WETH was sold for a short.
+
+## What does ETH/USDC trade?
+
+An ETH/USDC market supports **ETH exposure only**.
+
+| Direction | Position holds | Position owes | Adverse liquidation trade |
+|---|---|---|---|
+| Long ETH | WETH | USDC | sell WETH for USDC |
+| Short ETH | USDC | WETH | buy WETH with USDC |
+
+The pair cannot price or settle a BTC, SOL, equity, or arbitrary-index position.
+A different underlying requires its own liquid base/quote pool and debt vaults.
+This restriction is a direct consequence of removing the external oracle: the
+same venue that defines the price must also execute the position's conversions.
+
+## Why this is a perpetual-margin product
+
+Positions have no practical scheduled expiry: the inherited compact layout uses
+the maximum 32-bit term, approximately 136 years. The shipped v0 debt rate is
+zero, so principal does not drift away from the fixed liquidation range. This is
+an inventory-backed perpetual-margin construction rather than a cash-settled
+futures exchange.
+
+For a long holding `B` WETH with `Dq` USDC debt at ETH price `P`, equity in USDC
+is
+
+```text
+long equity = P * B - Dq
+```
+
+For a short holding `Cq` USDC with `Db` WETH debt,
+
+```text
+short equity = Cq - P * Db
+```
+
+That physical representation matters. An uncapped synthetic ETH long creates
+an unbounded USDC liability for its counterparty as ETH rises. Here the long
+already holds WETH, so the asset that creates the profit also funds it. A short
+retains the proceeds from selling borrowed WETH, which fund its profit if ETH
+falls. The remaining tail is ordinary collateralized-credit risk, with an
+explicit support-capital loss path, rather than an unfunded winner claim.
+
+## Keeperless gradual liquidation
+
+TruePerp carries over TrueLend's central mechanism rather than merely borrowing
+its chunk-size formulas.
+
+1. A position registers the ticks at which its loan-to-value ratio enters and
+   leaves a liquidation range.
+2. Every ordinary pool swap records a pre-swap observation and calls the hook
+   again after execution.
+3. When a boundary is crossed, the hook places the position in a bounded queue.
+4. While the pool tick remains inside that registered range and a chunk is due,
+   the hook makes an actual exact-input swap through the same pool.
+5. A portion of the output is donated to active Uniswap LPs; the remainder
+   repays the appropriate debt vault.
+6. Each chunk reduces both collateral and debt. Processing pauses only when the
+   tick exits on the safe side and resumes on a later adverse crossing.
+7. If ordinary swaps stop, anyone may call `poke`; its reward is carved from the
+   same liquidation penalty.
+
+The process is pausable, not literally reversible: completed swaps remain
+completed, but a safe-side range exit preserves the exposure that has not yet
+been sold. Liquidation can still affect spot price. TruePerp's claim is that the
+collateral input of each chunk is time-paced and capped against current depth,
+not that real liquidation can be made impact-free.
+
+## Who is the counterparty?
+
+“Counterparty” has two distinct meanings here:
+
+| Role | Party | Obligation |
 |---|---|---|
-| Uniswap v4 base/cash pool | Price discovery, observation history, callback clock | No |
-| `TruePerpHook` | Margin custody, positions, funding, risk checks, partial liquidation | No equity capital of its own |
-| `PerpVault` | Cash liquidity that pays wins and receives losses and fees | Yes |
+| Trade counterparty | In-range Uniswap LPs | exchange WETH and USDC at the pool curve |
+| Credit provider | protocol-seeded USDC or WETH vault | lend the debt asset and absorb residual bad debt |
+| Automation | `TruePerpHook` | detect risk, pace chunks, swap, donate, and repay |
+| Position owner | Trader | supplies first-loss equity and receives the residual on close |
 
-The `PerpVault` is therefore the GMX-like part of the design. The important
-difference is that GMX integrates pricing and a multi-asset liquidity pool into
-its own market system, whereas TruePerp reads one specific Uniswap spot pool and
-uses a separate, single-currency counterparty vault.
+The Uniswap pool is therefore central to liquidation, but its LPs are not
+silently debited for arbitrary marked PnL. They take the other side of actual
+swaps under the pool invariant. In the shipped v0, debt-vault support capital is
+protocol-seeded, accepts the isolated credit risk, and earns no interest.
 
-That separation creates a hard constraint. A cash-only USDC vault cannot
-guarantee an unlimited ETH-long profit if ETH can rise without bound. A fully
-backed design would need to hold or hedge ETH, as well as USDC. For the
-hackathon, the simpler coherent choice is a **bounded perpetual**: each position
-chooses a maximum profit below a market ceiling, and the vault reserves that
-amount before the position opens.
+## Why not a physically hedged counterparty vault?
 
-## Mechanism
+A dual-asset counterparty vault could issue synthetic positions and hedge them
+in the spot pool. To back one long it would have to buy and reserve WETH; to
+back one short it would have to borrow or sell WETH and reserve the USDC
+proceeds. Liquidation would then unwind those hedges.
 
-1. A trader deposits cash margin and chooses long or short exposure.
-2. Entry is recorded at a price derived from the pool's current tick and recent
-   observations. The trade is synthetic: the hook does not swap the base asset.
-3. The current prototype accrues skew funding. The redesigned base demo sets it
-   to zero; a future version may restore it only with collection-backed
-   accounting.
-4. When equity falls below maintenance, the protocol reduces part of the
-   position and realizes that slice in cash.
-5. Further reductions pause if health recovers. Already executed reductions are
-   permanent; the mechanism is **pausable**, not reversible.
-6. A defined backstop handles exhausted trader margin or an insolvent vault.
+That construction adds hedge timing, rebalance, basis, withdrawal, and share-NAV
+risk. Once every synthetic unit is exactly hedged, it also converges to the
+simpler representation above: a long is WETH collateral plus USDC debt, and a
+short is USDC collateral plus WETH debt. TruePerp stores that physical position
+directly instead of maintaining a second derivative ledger that can diverge
+from its hedge.
 
-The current v0.1 contracts implement steps 1–5 and a losing-trader shortfall
-record. The audit of the prototype identified missing protections around vault
-withdrawals, winning-trader payouts, funding conservation, price manipulation,
-and liquidation retriggering. Those findings define the proposed demo revision.
+## Hackathon scope
 
-## Recommended hackathon scope
+The demo deliberately targets one curated WETH/USDC market:
 
-The strongest demo is intentionally narrow:
+- one hook-enabled Uniswap v4 pool with protocol-seeded wide-range liquidity;
+- one isolated USDC lending vault and one isolated WETH lending vault;
+- demo-selected three-to-five-times leverage, not a contract-enforced maximum;
+- actual swap execution for entry, exit, and liquidation;
+- caller-supplied deadlines and price limits;
+- a truncated pool-local observation history for manipulation-resistant
+  admission checks;
+- depth-capped collateral inputs for time-paced liquidation chunks, with a small
+  LP donation;
+- permissionless `poke` and a slippage-bounded terminal backstop; and
+- isolated bad-debt accounting against the vault that originated the debt.
 
-- one curated ETH/USDC market;
-- standard test ERC-20 assets and isolated USDC accounting;
-- a fixed vault epoch: capital enters before trading and cannot enter or leave
-  while any position or payout claim from that epoch remains unsettled;
-- a protocol-seeded, wide-range spot-liquidity position locked for the epoch;
-- a trader-selected maximum profit below a market ceiling, fully reserved from
-  vault cash;
-- position and OI limits based on unreserved vault cash and locked spot depth;
-- user-supplied price limits and deadlines;
-- a guarded settlement price that bounds one-transaction spot moves;
-- funding disabled so the demo isolates the liquidation mechanism;
-- partial liquidation that can retrigger whenever health falls again;
-- an explicit close-only state, with pro-rata payout only as a catastrophic
-  fallback if a reserved claim cannot be honored.
+This scope demonstrates the research contribution cleanly: **market activity
+itself advances a gradual liquidation that exchanges real inventory, repays
+real debt, and rewards the LPs absorbing the flow.**
 
-This scope preserves the contribution worth demonstrating: **partial,
-cash-settled liquidation driven by a venue-native price, without liquidation
-sell pressure**. It does not pretend that a hackathon prototype has solved
-permissionless market listing or general LP-vault solvency.
+## Repository map
 
-## Documentation
-
-- [Design specification](DESIGN.md) — components, state transitions, accounting,
-  and the proposed demo revision.
-- [Research note](RESEARCH.md) — design alternatives, relation to GMX, and the
-  security argument.
-- [Parameter framework](PARAMETERS.md) — equations, illustrative demo values,
-  and the evaluation plan.
-- [Whitepaper](WHITEPAPER.md) — concise academic presentation of the proposal.
-
-## Repository
-
-| Contract | Purpose |
+| Component | Purpose |
 |---|---|
-| [`TruePerpHook`](src/TruePerpHook.sol) | Position and margin ledger, pool observations, funding, and liquidation |
-| [`PerpVault`](src/PerpVault.sol) | Cash counterparty and LP-share accounting |
-| [`PerpVaultFactory`](src/PerpVaultFactory.sol) | Per-market vault deployment |
+| [`TruePerpHook`](src/TruePerpHook.sol) | position custody, pool observations, risk ranges, queue processing, swaps, and repayment |
+| [`PerpLendingVaultFactory`](src/PerpLendingVaultFactory.sol) | deploys the two zero-rate, utilization-capped support vaults used by v0 |
+| [`LendingVault`](lib/truelend/src/LendingVault.sol) | debt-share and loss accounting, instantiated once for USDC and once for WETH |
+| [`TruePerpRouter`](src/TruePerpRouter.sol) | atomic quote-margin entry and physical exit with user price protection |
+| TrueLend libraries | tick indexing, truncated observations, range math, and chunk sizing |
 
-TruePerp imports its tick-indexing, price-filter, range, and chunk-sizing
-libraries from the TrueLend submodule.
+See [DESIGN.md](DESIGN.md) for the full state machine and accounting model.
+The research, parameter, and whitepaper documents are being aligned to this
+physical architecture as part of the same prototype revision.
 
 ```bash
 git clone --recursive https://github.com/queenleoa/TruePerp.git
@@ -131,11 +199,18 @@ forge build
 forge test --offline
 ```
 
-Current verification: 10 TruePerp scenario tests pass; the hook runtime is
-22,726 bytes. The root suite does not yet include adversarial solvency or
-invariant tests.
-
 ## Status
 
-`v0.1` is an implemented proof of mechanism. `v0.2-demo` is the design target
-documented in this repository. Neither version is audited or deployed.
+The canonical TruePerp path is `TruePerpRouter`: it assigns base/quote semantics,
+requires an activated market, and constructs quote-margin longs and shorts.
+Because v0 directly inherits the TrueLend kernel, the lower-level
+`TruePerpHook.open` entrypoint remains publicly reachable. Direct callers can
+bypass the router's product checks, including on the activated pool. Pools that
+use the hook but are not router-activated have their own isolated vaults, but
+they are not canonical TruePerp markets. This is an explicit prototype
+limitation, not a security boundary.
+
+The root suite currently contains 14 TruePerp integration tests; the inherited
+TrueLend engine has 94 tests in its own project. Both suites must be run when the
+kernel changes. TruePerp remains a research prototype and has not been
+externally audited.

@@ -1,322 +1,524 @@
-# TruePerp: Pool-Referenced Perpetuals with Progressive Cash-Settled Deleveraging
+# TruePerp: AMM-Native Perpetual Margin with Gradual Physical Liquidation
 
-**Research note · hackathon prototype · September 2026**
+**Research paper · hackathon architecture · September 2026**
 
 ## Abstract
 
-TruePerp studies whether a perpetual-futures market can use a Uniswap v4 pool as its native price reference without relying on an external oracle. Each TruePerp market is tied to one spot pair. An ETH/USDC pool therefore supports one synthetic ETH perpetual quoted, margined, and settled in USDC; it does not support arbitrary underlyings. The Uniswap pool supplies the price history and an activity clock, but it does not take trader risk. A separate, cash-funded PerpVault is the counterparty, in the same broad sense that an LP-backed perpetual venue places trader profit and loss against a shared liquidity pool.
+TruePerp is an expiry-free leveraged-trading protocol built around a Uniswap v4
+pool and its hook lifecycle. An ETH long holds WETH and owes USDC; an ETH short
+holds USDC and owes WETH. Entry, exit, and liquidation therefore exchange real
+inventory through the associated WETH/USDC pool. There is no synthetic
+cash-settled claim against a shared counterparty pool, no fixed maturity, and no
+zero-sum funding payment between long and short traders. The v0 debt vaults
+deliberately charge zero interest: they are protocol-seeded support capital for
+the mechanism demonstration, not yield products.
 
-The proposed mechanism replaces an all-at-once liquidation with progressive deleveraging. When a position falls below maintenance margin, the protocol closes bounded slices of synthetic exposure and realizes each slice in cash. No base asset is sold into the spot pool. Consequently, the liquidation mechanism itself creates no forced spot order and no direct price impact. This is the central contribution of the prototype.
+The protocol's principal contribution is an AMM-native liquidation process.
+Ordinary swaps update a pool-local price history, cross position-specific risk
+ticks, and give the hook an opportunity to execute a bounded liquidation swap
+before the transaction completes. A distressed position is converted from its
+held asset into its debt asset in time-paced, input-capped chunks. Every chunk
+repays debt. If price recovers, future chunks pause; if the pool becomes quiet,
+a permissionless `poke` runs the same state machine; and if gradual treatment is
+exhausted, a slippage-bounded `forceClose` provides the terminal path.
 
-The checked-in `v0.1` contracts demonstrate this mechanism, but they do not establish production safety. In particular, current vault withdrawals, liability accounting, funding settlement, raw-spot deleveraging, and liquidation re-triggering admit important failure modes. The recommended `v0.2-demo` bounds counterparty liability at entry: each position selects a maximum cash profit below a market ceiling, the vault reserves that amount, and the position closes—or stops accruing profit—at the corresponding take-profit bound. This paper separates that design from `v0.1` and adds one curated market, a fixed vault epoch, locked reference liquidity, free-cash and depth-aware exposure limits, bounded settlement prices, re-triggerable liquidation, and a catastrophic payout-shortfall procedure. Funding is disabled in the base demo.
+This construction delivers economically perpetual long and short exposure, but
+it is not a conventional perpetual-futures contract. It is more precisely an
+isolated, physically executed margin product with no expiry. Lending vaults are
+necessary credit infrastructure; the hook's integration of risk detection,
+execution, and repayment with the AMM is the research contribution. The design
+does not eliminate price manipulation, execution loss, liquidity gaps, or bad
+debt, and the checked-in repository remains an unaudited prototype under
+architectural migration.
 
-## 1. Research question and scope
+## 1. Instrument definition
 
-A perpetual market must determine a reference price, maintain collateral, transfer profit and loss, and resolve insolvent positions. Conventional systems often obtain the reference price from an external feed and close distressed positions in a discrete transaction [5]. TruePerp asks a narrower question:
+### 1.1 One pool, one base exposure
 
-> Can a perpetual use the price of its associated spot pool and reduce distressed exposure progressively, without forcing a trade in that pool?
-
-The proposed answer is an **externally-oracle-free, pool-referenced, cash-settled perpetual**. “Externally-oracle-free” is intentionally narrower than “oracle-free.” The design still makes an oracle-like judgment: it derives a reference from the current and historical states of one Uniswap pool. It removes dependence on a separate feed, but it inherits the quality, manipulation resistance, and liveness of the selected pool.
-
-This is a proof of mechanism for a hackathon. It is not an audited exchange, a complete risk engine, or a claim that price manipulation has been eliminated.
-
-## 2. Market definition
-
-### 2.1 One spot pair defines one perpetual
-
-A TruePerp market is identified by a specific Uniswap v4 pool and a base/cash interpretation of its two currencies:
-
-| Component | ETH/USDC example |
-|---|---|
-| Spot reference | one designated ETH/USDC Uniswap v4 pool |
-| Perpetual underlying | synthetic ETH exposure |
-| Quote and margin asset | USDC |
-| Settlement asset | USDC |
-| Risk-taking liquidity | a separate USDC PerpVault |
-
-If the designated pool price is 2,500 USDC per ETH, a 1 ETH long has 2,500 USDC of notional. The trader does not receive ETH, and opening the perpetual does not buy ETH from Uniswap. Profit and loss are cash ledger entries settled in USDC.
-
-The pool cannot support “anything.” A BTC perpetual requires an appropriate BTC/cash pool and a distinct market; an equity or an off-chain index would require another trusted price source and would no longer satisfy this design’s central premise. Pool identity, fee tier, hook, and token orientation are therefore part of the instrument definition, not incidental implementation details.
-
-The present `v0.1` code treats `currency0` as base and `currency1` as cash. Because Uniswap orders currencies by address, `v0.2-demo` should record the economic orientation explicitly rather than imply general listing support.
-
-### 2.2 The two pools have different roles
-
-![TruePerp market architecture: the Uniswap pool supplies price and activity, while the PerpVault supplies counterparty capital](docs/assets/architecture.png)
-
-The word “pool” otherwise creates an important ambiguity:
-
-- The **Uniswap pool** holds base and cash for spot swaps. It supplies price observations, observable depth, and swap callbacks.
-- The **PerpVault** holds cash contributed by vault LPs. It pays trader gains and receives trader losses, fees, penalties, and eligible funding flows.
-- The **hook** holds trader margin and maintains positions. It reads the spot pool and transfers cash between traders and the PerpVault.
-
-Thus, TruePerp is GMX-like only at the counterparty layer: shared LP capital stands opposite aggregate trader profit and loss. It is not correct to say that the ETH/USDC Uniswap LPs are the house. Unless the same person separately deposits into the PerpVault, those LPs do not underwrite the perpetual.
-
-## 3. Accounting model
-
-Let $B>0$ be base size, $E$ entry price, $P$ settlement price, and $M$ remaining cash margin. Ignoring fees and funding, unrealized profit and loss is
+Let the market price be
 
 $$
-\operatorname{PnL}_{long}=B(P-E), \qquad \operatorname{PnL}_{short}=B(E-P).
+P=\frac{\text{USDC}}{\text{WETH}}.
 $$
 
-If $F$ is cumulative funding owed by the position, its equity is
+A WETH/USDC TruePerp market supports WETH exposure only. It cannot use that
+pool to trade BTC, SOL, an equity, or an unrelated index. Removing an external
+oracle makes this restriction structural: the same venue that supplies the
+price must also execute the position's asset conversions.
+
+The two directions are physical mirror images:
+
+| Direction | Held by the position | Owed to a lending vault | Liquidation conversion |
+|---|---|---|---|
+| Long WETH | WETH | USDC | sell WETH for USDC |
+| Short WETH | USDC | WETH | spend USDC to buy WETH |
+
+For a long holding $C_b$ WETH with outstanding quote debt $D_q$ USDC, marked equity
+in USDC is
 
 $$
-Q=M+\operatorname{PnL}-F.
+Q_L(P)=PC_b-D_q.
 $$
 
-The position is healthy when
+For a short holding $C_q$ USDC with outstanding base debt $D_b$ WETH, marked equity
+is
 
 $$
-Q \ge mPB,
+Q_S(P)=C_q-PD_b.
 $$
 
-where $m$ is the maintenance-margin ratio. Opening must use post-fee margin, not the pre-fee deposit, when checking initial margin.
+The long's positive price exposure is carried by WETH already in custody. The
+short's gain when WETH falls is the USDC left after repurchasing its WETH debt.
+Neither result requires an unbounded payout from a counterparty vault.
 
-With funding fixed at zero, as in the base demo, the long zero-equity and
-maintenance prices are
+### 1.2 Why the product is called perpetual
+
+The positions have no practical fixed expiry. They may remain open while their
+collateral ratios remain acceptable; elapsed time alone does not increase v0
+debt. This is the economically relevant sense in which the exposure is
+perpetual.
+
+The term must not obscure the distinction from a standard perpetual swap.
+TruePerp has no separate derivative mark, no periodic transfer between matched
+longs and shorts, and no shared marked-profit obligation. Its closest conventional
+category is isolated leveraged spot or margin financing. The protocol retains
+the TruePerp name because it offers continuous long and short exposure and an
+automated maintenance process, not because its balance sheet is identical to a
+futures exchange.
+
+## 2. System architecture
+
+### 2.1 The Uniswap pool
+
+The hook-enabled WETH/USDC pool performs three jobs:
+
+1. It executes every entry, exit, and liquidation conversion.
+2. Its tick and observation history provide the market's native risk reference.
+3. Ordinary swaps provide the event clock that advances liquidation work.
+
+Uniswap LPs are counterparties to actual swaps under the pool invariant. They
+earn ordinary swap fees and may receive a configured donation from liquidation
+proceeds. They are not debited for a trader's marked profit.
+
+### 2.2 The hook
+
+`TruePerpHook` owns the position state machine. It records collateral and debt
+shares, maintains a truncated pool-local observation history, indexes
+liquidation boundaries by tick, executes collateral-to-debt swaps, donates the
+liquidation charge, and routes net output to debt repayment.
+
+The hook is the protocol-specific innovation. A lending vault can exist without
+TruePerp; it does not by itself turn spot activity into gradual liquidation. The
+novel composition is that pool state both identifies risk and supplies the
+execution path, while v4 callbacks make ordinary market activity advance a
+bounded liquidation engine.
+
+### 2.3 The lending vaults
+
+Each market uses two isolated credit pools:
+
+- a USDC vault lends quote debt to WETH longs; and
+- a WETH vault lends base debt to WETH shorts.
+
+Vault shares represent claims on lender-owned cash plus performing debt. In v0,
+`PerpLendingVaultFactory` deploys both vaults with base rate, both slopes,
+reserve factor, and rate ceiling all equal to zero. The demo therefore expects
+the protocol to seed the capital; depositors earn no borrow yield. This capital
+still faces collateral-shortfall risk, and the inherited utilization,
+withdrawal-liquidity, debt-share, and write-off rules remain active. Those rules
+are supporting lending infrastructure rather than the defining perpetual
+mechanism.
+
+### 2.4 The router
+
+A router gives the physical core a margin-trading interface. In one PoolManager
+unlock, it can obtain the debt asset, swap it into the collateral asset, open the
+collateral-and-debt position for the trader, and settle the temporary balance
+with funds borrowed from the appropriate vault. The reverse route repays debt,
+converts only the collateral needed for repayment, and returns the residual.
+Every route includes a deadline and a user-specified price or amount bound.
+
+The atomic route changes convenience, not solvency. After entry, the long still
+holds WETH and owes USDC; the short still holds USDC and owes WETH.
+
+## 3. Origination and voluntary close
+
+### 3.1 Long entry
+
+Suppose a trader contributes quote margin $M_q$ and the USDC vault lends $D_q$.
+The router swaps the complete $M_q+D_q$ USDC input through the designated pool.
+If the actual output after fees and price impact is $C_b$ WETH, then
 
 $$
-P_{bk}=E-\frac{M}{B}, \qquad P_{maint}=\frac{P_{bk}}{1-m}.
+\text{held collateral}=C_b, \qquad \text{debt}=D_q.
 $$
 
-For a short under the same assumption, the corresponding prices are
+The opening check values $C_b$ conservatively using the worse of the current
+tick and the pool-local filtered observation. It must include the debt created
+by the transaction and cannot value newly purchased WETH at a price made
+favorable by its own swap.
+
+### 3.2 Short entry
+
+For a short, the trader contributes USDC margin $M_q$ and borrows $D_b$ WETH.
+The WETH is sold into the designated pool for $Q_{sale}$ USDC:
 
 $$
-P_{bk}=E+\frac{M}{B}, \qquad P_{maint}=\frac{P_{bk}}{1+m}.
+C_q=M_q+Q_{sale}, \qquad \text{debt}=D_b.
 $$
 
-These equations define a position-specific intervention range. They do not guarantee that the vault can pay the profitable side; position health and counterparty solvency are separate properties.
+Again, admission uses a conservative post-route health check. The realized AMM
+output, not an idealized oracle quote, determines the recorded collateral.
 
-### 3.1 Capped claims and conservative vault accounting
+### 3.3 Close
 
-`v0.1` uses net, uncapped PnL to value vault shares. This is unsafe because a
-large losing position may be unable to pay its theoretical loss, while a winner
-may close first. `v0.2-demo` instead requires position $i$ to select $K_i$, its
-maximum profit above the return of its own remaining margin, no greater than a
-market ceiling. Let $X_i=U_i-F_i$ be price PnL less a future collected funding
-debit; $F_i=0$ in the base demo. Capped gross winning claims are
+A long closes by selling enough held WETH to repay outstanding USDC debt. A short
+closes by spending enough held USDC to buy and repay outstanding WETH debt. A trader
+may alternatively repay the borrowed token externally and withdraw the held
+asset. Any remaining collateral belongs to the trader after debt, pool fees,
+and declared protocol charges are satisfied.
 
-$$
-G(P)=\sum_i\min\!\left(\max(X_i(P),0),K_i\right).
-$$
+There is no separate PnL payment. Profit or loss is the residual inventory after
+the real debt is extinguished.
 
-Losses collectible from trader margin are capped separately:
+## 4. Zero-carry debt and price anchoring
 
-$$
-R(P)=\sum_i \min\!\left(\max(-X_i(P),0),M_i\right).
-$$
-
-For physical vault cash $C$ and other funded obligations $R_o$, conservative
-reporting NAV and spendable free cash are
+The inherited vault represents debt with shares $s_i$ and a WAD-scaled borrow
+index $I_a$, where $W=10^{18}$:
 
 $$
-V(P)=C+R(P)-G(P)-R_o,
+D_i=\frac{s_iI_a}{W}.
+$$
+
+`PerpLendingVaultFactory` sets every rate input and the rate ceiling to zero.
+Consequently,
+
+$$
+I_a(t+\Delta t)=I_a(t)=W,
 \qquad
-C_{free}=\max(C-K-R_o,0),\qquad K=\sum_iK_i.
+D_i=s_i
 $$
 
-The cap in $R(P)$ is essential: a bankrupt trader is not an unlimited
-receivable. Gross winning claims remain visible even when losing positions
-appear to offset them. Because $R(P)$ is not collected cash, $V(P)$ is a
-reporting quantity; only post-admission $C_{free}$ may support additional risk.
+apart from debt retired by repayment or write-off. Time and utilization do not
+increase v0 debt, no interest reserve accrues, and neither USDC nor WETH vault
+capital earns carry.
 
-At admission, the vault locks $K_i$ from free cash without netting longs against
-shorts. The illustrative market ceiling is 100% of post-fee initial margin.
-Fees and penalties reduce margin or payout and cannot enlarge the reserved
-claim. Ignoring fees, the take-profit price is $E+K_i/B$ for a long and
-$E-K_i/B$ for a short; admission must keep the short-side bound positive. At
-the bound the position auto-closes. If processing is delayed, its claim remains
-capped at $K_i$. Settlement releases the reserve.
+This omission does not leave a synthetic perpetual mark unanchored. A
+conventional cash-settled perpetual often uses funding to pull its derivative
+price toward an external spot index. TruePerp has no separate derivative price:
+the position is actual WETH and USDC inventory, and entry, exit, and liquidation
+settle through the WETH/USDC spot pool itself. External-market arbitrage, not a
+long-short funding transfer, anchors that pool.
 
-## 4. Price construction
+Zero carry is a deliberate v0 scope choice. The registered liquidation range is
+computed once from opening debt. Keeping debt constant means elapsed time cannot
+make that range stale before any price tick is crossed. A production design may
+charge asset-specific borrow interest, but it must first add dynamic,
+debt-aware trigger re-registration and test its liveness and gas bounds. That
+extension is future work, not a current protocol claim.
 
-The spot pool is observable but manipulable. A one-block spot price is responsive and cheap to move in a shallow pool; a historical statistic is harder to move but reacts slowly to genuine jumps [3, 4]. TruePerp therefore cannot obtain both instant responsiveness and strong manipulation resistance merely by renaming the pool price an oracle.
+## 5. Risk geometry
 
-`v0.1` records pre-swap observations and uses a truncated median with directional, adverse prices for entry and voluntary exit. Progressive deleveraging, however, realizes against raw spot. Combined with immediate vault entry and exit, this leaves an economically meaningful manipulation path.
-
-For `v0.2-demo`, every value-transferring action begins from
-
-$$
-P_g=\operatorname{clamp}\!\left(P_s,P_f(1-\delta),P_f(1+\delta)\right),
-$$
-
-where $P_s$ is spot, $P_f$ is the pool-derived filtered price, and $\delta$ is
-the maximum unconfirmed deviation. Long entries use $\max(P_g,P_f)$ and short
-entries use $\min(P_g,P_f)$; voluntary exits reverse those choices. Partial
-liquidation, backstop, take-profit, and terminal settlement use $P_g$. Voluntary
-actions also include a deadline and an acceptable price bound.
-
-This rule limits the value transferable by a short-lived distortion; it does not make a thin pool secure against sustained manipulation. The deviation bound $\delta$ limits price movement recognized in one window, while $K_i$ independently limits a position's total counterparty claim. Market admission and exposure caps therefore depend on locked executable spot depth as well as free vault cash.
-
-## 5. Progressive deleveraging
-
-![A position moves from healthy operation into a maintenance-to-bankruptcy range, where bounded cash-settled chunks reduce exposure](docs/assets/liquidation-range.svg)
-
-When equity falls below maintenance, the engine closes a bounded amount $\Delta B$ of synthetic exposure. A general pacing rule is
+Define the two loan-to-value ratios
 
 $$
-c^*=\max\!\left(0,\frac{hP_gB-Q}{P_g(h-\pi)}\right),
-\qquad h>\pi,
+\ell_L(P)=\frac{D_q}{PC_b},
+\qquad
+\ell_S(P)=\frac{PD_b}{C_q}.
+$$
+
+Let $\theta$ be the soft-liquidation threshold, with
+
+$$
+0<\theta<1.
+$$
+
+Let $D_{q,0}$ and $D_{b,0}$ be opening principal. The compact demo fixes its tick
+range at origination. Ignoring execution costs, the soft-liquidation and
+opening-principal zero-equity prices are
+
+$$
+P_{L,\theta}=\frac{D_{q,0}}{\theta C_b},
+\qquad
+P_{L,bk}=\frac{D_{q,0}}{C_b}
+$$
+
+for a long, and
+
+$$
+P_{S,\theta}=\frac{\theta C_q}{D_{b,0}},
+\qquad
+P_{S,bk}=\frac{C_q}{D_{b,0}}
+$$
+
+for a short. A long enters danger as price falls; a short enters danger as price
+rises. The demo places a fixed far tick a configured width deeper in the adverse
+direction. That geometric edge is not itself a solvency guarantee; a separate
+live coverage test can enable force-close earlier when price, prior execution,
+and liquidation charges consume the remaining runway.
+
+The corresponding price boundaries are converted into initialized Uniswap
+ticks with explicit token orientation and decimal normalization. Rounding is
+conservative: the soft boundary must activate no later than the mathematical
+threshold. The coverage backstop uses the position's actual remaining
+collateral and debt. Debt does not grow with time in v0, and the stored ticks do
+not move after repayments.
+
+## 6. Gradual, pool-executed liquidation
+
+### 6.1 State transition
+
+When an ordinary swap moves the pool tick across a registered soft boundary,
+the hook marks the position active for liquidation. It does not transfer the
+position to a keeper. Instead, when the cadence permits, it converts a bounded
+amount of the position's held asset into its debt asset through the same pool.
+
+For a long, let an exact-input sale consume $x_b$ WETH and return $y_q$ USDC.
+Let $z_q$ be the total liquidation charge and $r_q\le z_q$ the caller portion;
+the pool donation is $z_q-r_q$. Repayment is
+
+$$
+u_q=\min(D_q,y_q-z_q),
+$$
+
+and the new state is
+
+$$
+C_b'=C_b-x_b, \qquad D_q'=D_q-u_q.
+$$
+
+For a short, an exact-input swap spends $x_q$ USDC and obtains $y_b$ WETH. With
+total charge $z_b$ and caller portion $r_b\le z_b$ in the output asset,
+
+$$
+u_b=\min(D_b,y_b-z_b),
 $$
 
 $$
-\Delta B=\min\!\left(c^*,\frac{B}{N}g(\Delta t,d,\ell),
-\eta D_{lock},B\right),
+C_q'=C_q-x_q, \qquad D_b'=D_b-u_b.
 $$
 
-where $c^*$ is the amount required to restore target margin ratio $h$, $N$ is a
-target chunk count, $g$ responds to elapsed time, range depth $d$, and position
-pressure $\ell$, $D_{lock}$ is locked in-range spot depth, and $\eta$ is a
-conservative depth fraction. The pacing structure is adapted from TrueLend’s
-liquidation kernel [1]. Depth governs how much risk may be processed at one
-price observation; it is not consumed by the close.
+Thus every successful chunk retires debt. If debt reaches zero, unused output
+and all unsold collateral are returned to the trader. If no executable pool
+liquidity exists, the chunk consumes nothing and remains pending.
 
-At price $P_g$, closing a slice realizes its PnL against margin and reduces $B$. The hook sends no swap to Uniswap. This gives the mechanism its principal property:
+### 6.2 Execution loss
 
-> Progressive liquidation creates no forced spot order; it changes cash balances and synthetic open interest only.
-
-The property removes liquidation-induced spot impact, not economic loss. Losses still move from trader margin to the PerpVault, and profitable traders remain claims on finite vault cash.
-
-### 5.1 Health restoration and the penalty correction
-
-At a fixed price and with no fee, realizing a slice preserves equity while reducing required maintenance. If the position closes fraction $r$ of its notional and pays penalty rate $\pi$ on that slice, define maintenance deficit depth as
+At the reference price $P$, a long chunk changes equity by
 
 $$
-d=1-\frac{Q}{mPB}.
+Q_L'-Q_L=-(Px_b-u_q),
 $$
 
-The minimum fraction required to restore health at the same price is
+and a short chunk changes equity by
 
 $$
-r \ge \frac{md}{m-\pi}, \qquad \pi<m.
+Q_S'-Q_S=-(x_q-Pu_b).
 $$
 
-The often-used approximation $r\approx d$ is valid only when the penalty is negligible. At $\pi=m/4$, the requirement is $r\ge4d/3$; a sufficiently deep position cannot recover through partial reduction alone. Adverse price movement and funding during the episode increase the required reduction further.
+The bracketed terms are execution drag: pool price impact, swap fees,
+liquidation donation, and caller reward. In the frictionless limit they are
+zero, so reducing collateral and debt by equal value preserves equity while
+improving LTV. In reality liquidation is not impact-free. The prototype bounds
+requested input using a coarse liquidity proxy; it does not place a local
+sqrt-price limit on ordinary chunks. Its safety therefore depends on starting
+early enough and empirically calibrating that proxy against actual execution.
 
-Accordingly, the engine should be described as **progressive and pausable**, not reversible or universally self-terminating. Completed chunks are final. If price recovers, processing pauses; if health later deteriorates, processing must restart. If equity is exhausted or recovery is impossible, the protocol enters its explicit terminal-resolution path.
+### 6.3 Pacing
 
-### 5.2 Re-triggerable state
-
-`v0.1` registers fixed maintenance and bankruptcy ticks and can clear an active episode after health is restored. A later deterioration inside the original range need not cross another registered boundary, so processing may fail to restart. Funding can also change health without any tick crossing.
-
-`v0.2-demo` should make health, rather than a one-time boundary crossing, authoritative. After every chunk or margin change it should recompute the next trigger, preserve an active watch state while the price remains in the range, and allow a permissionless poke to re-enqueue any unhealthy position. Queue capacity and per-tick registration must be protected against dust-position exhaustion.
-
-## 6. Funding and open-interest control
-
-The base `v0.2-demo` sets funding to zero. That isolates the liquidation claim and
-avoids presenting `v0.1`'s non-conserving implementation as repaired. If funding
-is added later, its purpose is to price inventory imbalance rather than a
-mark-index premium [2]. For long and short base open interest $L$ and $S$, a
-candidate skew measure is
+The desired input is a fraction of remaining collateral, increased by elapsed
+time and depth into the risk range, then bounded by a range-depth proxy:
 
 $$
-z=\frac{L-S}{L+S}.
+x=\min\!\left(
+\frac{C}{N}\,g(\Delta t,d,\varrho),
+\eta D_{range},
+C
+\right).
 $$
 
-A simple model charges the crowded side at a rate proportional to $kz$. Because unmatched exposure is carried by the PerpVault, any residual belongs to that vault only after it has actually been collected.
+Here $N$ is the target number of chunks, $d\in[0,1]$ is range depth,
+$\varrho$ measures position pressure relative to the proxy, $\eta$ is the
+per-chunk input fraction, and $D_{range}$ is measured in the held token. The
+current kernel estimates $D_{range}$ by extending current active liquidity over
+the position's whole range; it does not traverse initialized ticks and therefore
+is neither guaranteed executable depth nor a price-impact bound. Time catch-up
+and per-callback work are capped. This makes requested input gradual; it does
+not guarantee execution through a gap or an empty pool.
 
-Any future ledger must conserve cash. A nominal payer obligation remains recorded
-until processed, but limited liability caps the collectible amount at available
-margin. A recipient credit is recognized only after that cash is collected and
-shares the position's existing $K_i$ cap. An uncollectible remainder is a
-recorded shortfall, not an asset or an unfunded credit.
+### 6.4 Callback path
 
-Open interest must satisfy both a free-cash constraint and a locked-spot-depth
-constraint, evaluated after the proposed reserve is included. The first limits
-the PnL that LP capital may have to pay; the second limits how much value can be
-settled from a manipulable reference. A per-position cap prevents one account
-from consuming the complete market budget.
+The hook uses the v4 lifecycle as follows:
 
-## 7. Counterparty solvency and terminal resolution
+1. `beforeSwap` records the pre-swap tick when the observation interval permits.
+2. The user's ordinary swap executes.
+3. `afterSwap` walks only crossed registered boundaries, refreshes affected
+   positions, and processes at most a configured number of due chunks.
+4. A chunk calls the PoolManager's swap function directly in the already-open
+   accounting context. The local v4 `Hooks.sol` implementation skips
+   `beforeSwap` and `afterSwap` when the hook itself initiated the swap, so the
+   liquidation swap does not recursively invoke these callbacks.
+5. The hook settles its input, takes the output, donates the declared penalty,
+   and repays the correct lending vault.
 
-Cash settlement makes the counterparty obligation explicit. In `v0.1`, a long can earn without bound as ETH rises while the vault contains finite USDC. No open-interest percentage alone proves solvency for that payoff. `v0.2-demo` therefore does not offer unlimited profit within one position: the trader chooses a maximum cash profit below the market ceiling and accepts mandatory settlement at that bound. The trader may open a new position afterward.
+All loops and trigger walks require hard bounds and resumable cursors. Ordinary
+swappers must not inherit unbounded work from the number of open positions.
 
-The primary solvency rule is $K_i\le C_{free}$ before admission, aggregate
-reserve occupancy $K+R_o\le\rho C$ after admission, and recomputation of every
-limit from post-admission $C_{free}$. The reserve cannot fund another position
-or an LP withdrawal until position $i$ settles. Automatic take-profit improves
-liveness and releases capital; the accounting cap, rather than automation, is
-what bounds the claim.
+### 6.5 Poke and recovery
 
-`v0.2-demo` combines that rule with:
+`poke(pool)` is a permissionless liveness path. It enters a PoolManager
+accounting context and invokes the same trigger walk and chunk engine with a
+bounded, possibly larger work allowance. Its caller reward is carved from the
+position's liquidation charge; it is not newly minted and cannot exceed
+realized proceeds.
 
-1. A curated single market and standard, allowlisted cash token.
-2. Gross reservation of every live position's declared profit cap.
-3. A fixed vault epoch: capital enters before trading and cannot enter or leave while any position or payout claim remains unsettled.
-4. OI and position caps tied to both free cash and protocol-seeded spot depth locked for the epoch.
-5. Separate margin, fee, and vault subaccounts within the sole demo market.
-6. A close-only mode when actual cash falls below aggregate reserves.
+If price reverses across the stored soft boundary, the hook pauses future
+chunks. Already executed swaps, fees, donations, and repayments are final. The
+position retains its remaining exposure and can re-enter liquidation on a later
+adverse crossing. The demo does not dynamically relocate the range after each
+repayment. This is pausable gradual deleveraging, not reversible execution.
 
-If these invariants hold, an ordinary price move cannot create an unpaid winning claim. Pro-rata settlement remains a catastrophic fallback for an accounting failure, token anomaly, or other state in which actual cash is below reserved claims. The fallback preserves unspent trader margin, sets LP share value to zero, snapshots capped claims at the bounded mark, and distributes available counterparty cash pro rata. Any unpaid amount is recorded as an explicit haircut. Batch treatment avoids rewarding the first winner to close.
+## 7. Terminal force-close and loss allocation
 
-This fallback is not a normal risk-management tool. It defines the final bearer of loss if the primary reservation invariant has already failed.
+Gradual treatment ends when the pool passes the far boundary, the current
+collateral-and-debt state breaches conservative buffered coverage, or the
+finite implementation horizon is reached. For collateral value $V_D$ in
+debt-token units—$PC_b$ for a long and $C_q/P$ for a short—and configured
+buffer $b$,
 
-## 8. Implemented `v0.1` and recommended `v0.2-demo`
+$$
+V_D(1-b_{eff})<D,
+\qquad
+b_{eff}=\min\!\left(b,\frac{1-\theta}{2}\right)
+$$
 
-| Area | Checked-in `v0.1` | Recommended `v0.2-demo` |
+makes the position eligible. Anyone may then call `forceClose(position)`. The
+product has no scheduled maturity; the inherited
+compact position layout represents that policy with a maximum 32-bit horizon
+(about 136 years), which is a finite implementation sentinel rather than a
+practical trading expiry.
+
+The backstop attempts to convert remaining collateral into the debt asset, but
+uses a hard sqrt-price limit. If the limit or the edge of available liquidity is
+reached, only the executable portion fills. Unsold collateral remains in the
+position, which stays force-closeable for later retry. This is intentionally not
+an unbounded fire sale.
+
+The declared liquidation charge is taken from gross swap output before net
+repayment; its caller-reward and LP-donation portions are therefore senior to
+the debt claim for that execution. Net output then repays debt. If the debt is
+cleared, surplus output and remaining collateral return to the trader. If all
+collateral is consumed and debt remains, the borrowed-asset vault records bad
+debt. The v0 loss waterfall is:
+
+1. position collateral and accrued proceeds;
+2. any inherited-vault reserve balance, which v0 neither seeds nor grows; and
+3. the protocol-seeded lending-vault share capital.
+
+Uniswap LPs experience only the inventory and price effects of swaps they
+actually execute. They do not absorb an off-ledger shortfall. Lenders absorb the
+credit tail for the asset they explicitly supplied.
+
+## 8. Economic interpretation
+
+| Property | Conventional cash-settled perpetual | TruePerp physical perpetual margin |
 |---|---|---|
-| Listing | Any pool can initialize; code fixes `currency0` as 18-decimal base | One curated market with explicit orientation and decimal normalization |
-| Spot role | Tick, history, depth, and swap callbacks | Reference and clock; protocol depth locked for epoch |
-| Counterparty | Separate per-pool PerpVault | Same economic role, with explicit reserves |
-| LP liquidity | Immediate deposit and redemption | Fixed epoch; no active share entry or exit while OI is live |
-| Profit payout | Unbounded position profit; payment may exceed vault cash | Trader-declared cash-profit cap, fully reserved; auto-close/cap at take profit |
-| Vault NAV | Net, uncapped aggregate trader PnL | Capped gross winner claims; losing PnL capped by collectible margin |
-| Cash accounting | Per-pool vaults, but shared hook token custody | Enforced per-market subaccounts and conservation checks |
-| Admission | OI cap relative to current vault equity | Declared profit must be fully reservable; OI, depth, and position caps also apply |
-| Settlement | Filtered adverse entry/exit; raw-spot chunks | Bounded pool-derived mark plus user deadline/price limits |
-| Funding | Cumulative indices with unmatched transfers | Disabled in base demo; collection-backed ledger is future work |
-| Liquidation | Tick-triggered fixed range and chunk queue | Health-authoritative, re-triggerable queue and refreshed thresholds |
-| Insolvency | Recorded trader shortfall; payout can revert | Reservation is primary; pro-rata capped-claim impairment is catastrophic fallback |
-| Governance | Mutable live configuration | Narrow parameter surface, events, delay, and emergency pause |
+| Position representation | derivative PnL ledger | held asset plus opposing-asset debt |
+| Long profit source | losing traders, market maker, or insurance fund | appreciated base inventory |
+| Short profit source | losing traders, market maker, or insurance fund | retained quote after repurchasing base debt |
+| Carry | usually long-short funding | zero in v0; no synthetic funding ledger |
+| Expiry | none | none |
+| Entry and exit | book, AMM, or oracle accounting | actual swaps in the designated AMM |
+| Liquidation | position transfer or event close | paced collateral-to-debt swaps |
+| Primary tail bearer | venue-specific backstop | protocol-seeded debt-vault capital after collateral |
 
-The right hackathon claim is therefore not “production-ready perpetual exchange.” It is “a working demonstration of progressive, cash-settled deleveraging driven by a spot pool, accompanied by a concrete risk design for the next iteration.”
+The design removes an unfunded marked-profit promise. It introduces a different
+and more familiar risk: collateral may fail to buy enough of the borrowed token
+during a gap or liquidity failure.
 
-## 9. Security assumptions and attack surfaces
+## 9. Security assumptions and limitations
 
-The concept depends on the following assumptions:
+The architecture assumes:
 
-- The designated spot pool has independent arbitrage activity and a protocol-seeded, wide-range position locked for the vault epoch.
-- The cash asset behaves as a conventional ERC-20 and remains suitable as a unit of account.
-- Swaps or permissionless pokes occur often enough to advance liquidation state.
-- Vault capital remains locked for the risk period it underwrites.
-- Administrative changes cannot rewrite live-position economics without notice.
+- the attached pool has sufficient independent arbitrage and executable depth;
+- token orientation and decimals are normalized correctly;
+- the market supports standard tokens without rebasing, transfer fees, or
+  callback behavior that breaks balance accounting;
+- vault utilization leaves enough liquidity for ordinary withdrawals and new
+  borrowing;
+- trigger walking, queue processing, and nested PoolManager accounting remain
+  strictly bounded; and
+- permissionless callers have enough incentive to poke quiet markets and retry
+  partial force-closes.
 
-The principal adversarial cases are short-lived and sustained pool-price manipulation, just-in-time vault deposits, withdrawal runs, winner-first settlement, unexpected loss of locked depth, trigger-queue exhaustion, and zero-liquidity periods. A bounded mark reduces the first case; it does not replace economic testing of the others. Funding conservation and multi-market isolation remain future-extension requirements rather than base-demo claims.
+The pool price is an endogenous reference, not an infallible oracle. A temporary
+price move can enter a victim's liquidation range and cause real trades. Gradual
+execution removes the atomic keeper bonus and forces an attacker to trade
+against bounded flow, but it does not prove manipulation unprofitable. Sustained
+control, thin liquidity, adverse ordering, and multi-block attacks remain
+empirical security questions.
 
-External-oracle independence also creates a basis question: if the chosen Uniswap pool diverges from the wider ETH market, TruePerp settles to the chosen pool. This is internally consistent but may surprise traders. The interface must name the exact reference pool and display the basis risk.
+Liquidation swaps can move the same price that triggered them. Pacing and depth
+caps reduce this feedback; they do not eliminate it. A market gap can cross the
+entire soft range before any callback runs. An empty pool can halt both gradual
+and terminal execution. These cases must be surfaced as explicit liveness and
+bad-debt risks. Nonzero interest would add a no-tick risk path and is excluded
+until dynamic trigger maintenance exists.
 
 ## 10. Evaluation plan
 
-Evaluation should test the mechanism separately from the business claim that vault LPs will earn an adequate return.
+The target implementation should establish at least the following invariants:
 
-**Contract invariants.** Property and invariant tests should establish market cash conservation, aggregate reserved cash at least equal to aggregate declared profit caps, no claim above its cap even if auto-close is delayed, correct long/short symmetry, post-fee margin admission, zero funding in the base demo, repeatable liquidation activation, queue liveness, and the absence of any hook-initiated spot swap during a chunk.
+1. The hook's held-token balance is at least aggregate recorded position
+   collateral; accidental surplus must not create a deficit.
+2. Position debt shares reconcile with the corresponding vault's total debt.
+3. Every successful liquidation output is conserved among debt repayment,
+   donation, caller reward, and trader surplus.
+4. A long can repay only USDC debt and a short only WETH debt.
+5. No path manufactures a cash-settled PnL claim or transfers zero-sum funding.
+6. A zero-liquidity or price-limited swap cannot consume unfilled collateral.
+7. Callback work remains within its tick, position, and chunk caps.
+8. A safe-side tick crossing pauses future chunks without undoing completed
+   execution.
+9. `poke` and callback processing use the same per-chunk sizing, swap, and debt
+   rules, modulo their different work budgets and `poke` reward treatment.
+10. A collateral shortfall follows the stated borrowed-asset vault waterfall.
 
-**Adversarial scenarios.** Tests should include all live positions reaching their profit caps, delayed take-profit execution, one-block and multi-block price pushes, same-epoch deposit and withdrawal attempts, winners closing before losers, unexpected locked-depth failure, empty spot liquidity, dust positions at a common trigger, and adverse transaction ordering.
+Scenario tests should include long and short symmetry, token-decimal asymmetry,
+debt constancy across long time warps, abrupt gap-through, one-block
+manipulation, multi-block manipulation, sparse swaps, empty liquidity, partial
+force-close, queue saturation, adverse transaction ordering, and vault
+utilization stress.
+Simulation should report execution loss, liquidation duration, debt retired per
+chunk, price impact, recovery retention, poke profitability, and bad-debt rate.
 
-**Simulation.** Historical and synthetic paths should vary volatility, gaps, pool depth, swap cadence, vault capitalization, skew, and withdrawal demand. Report time to restored health, fraction of exposure retained, reserve utilization, vault drawdown, payout deficit, and forced spot volume. Compare progressive deleveraging with an otherwise equivalent one-shot close. Parameter values should be inferred from these experiments rather than inherited from the lending analogue.
+## 11. Prototype status
 
-**Demo trace.** A persuasive demonstration opens an ETH/USDC long, moves the reference through maintenance with an ordinary spot swap, shows several cash-settled reductions, verifies that the hook issues no spot swap, and stops when the smaller position becomes healthy. A second trace should show the profit reserve being locked, the position capped or closed at take profit, and the reserve released. A fault-injection test—not ordinary market operation—should exercise the catastrophic pro-rata fallback.
-
-## 11. Limitations
-
-TruePerp does not eliminate price judgment. It replaces an external feed with one named on-chain venue and therefore inherits that venue’s liquidity, manipulation cost, and liveness. A bounded mark limits abrupt transfers but delays recognition of genuine jumps.
-
-Cash settlement alone does not make `v0.1` fully collateralized: long profit is unbounded while PerpVault cash is finite. `v0.2-demo` obtains a bounded liability by limiting each position's net cash profit and reserving that amount. This is a deliberate product trade-off: traders give up unlimited upside and must reopen after take profit. Reservation does not remove manipulation, governance, token, or implementation risk.
-
-The `v0.1` repository provides a small set of happy-path tests and has not been audited or deployed. It lacks several safeguards described in this paper, along with partial voluntary close, margin top-up, mature market governance, and calibrated risk parameters. Results inherited from TrueLend are motivation, not validation of a perpetual counterparty vault.
+This paper specifies the approved physical architecture. Earlier prototype
+revisions used a different synthetic accounting model; those mechanics are not
+part of this design. The current verification run passes 14 TruePerp root tests
+and 94 inherited TrueLend tests with no failures. This is implementation
+evidence, not an external audit or proof that the parameters are safe.
 
 ## 12. Conclusion
 
-TruePerp’s defensible contribution is specific: a distressed synthetic position can be reduced in paced, cash-settled chunks referenced to a Uniswap pool, without sending a forced trade to that pool. In an ETH/USDC market, traders trade a synthetic ETH perpetual settled in USDC. The Uniswap pool supplies price and activity; the separate USDC PerpVault supplies counterparty capital.
+TruePerp is most accurately described as an AMM-native perpetual-margin
+protocol. Its long is WETH collateral financed by USDC debt; its short is USDC
+collateral financed by WETH debt. The absence of expiry gives perpetual economic
+exposure, while real inventory removes the need for a shared vault to honor
+uncapped marked profit.
 
-For a credible hackathon demonstration, this mechanism should be presented together with its constraints. A mandatory, fully reserved profit cap is the simple primary answer to vault solvency; curated listing, a fixed LP epoch, locked reference depth, conservative liability accounting, bounded settlement, zero demo funding, re-triggerable liquidation, free-cash limits, and catastrophic shortfall resolution complete the research design. They do not make it production-safe, but they make its contribution testable and its risks legible.
+The research contribution is the execution lifecycle: ordinary Uniswap swaps
+detect risk and advance bounded collateral conversions; each conversion repays
+real debt and rewards the pool liquidity that absorbs it; recovery pauses the
+remaining process; `poke` restores liveness in quiet periods; and a
+slippage-bounded force-close declares the terminal credit outcome. Lending
+vaults make the leverage possible, but the hook-mediated union of price,
+execution, and gradual liquidation is what distinguishes TruePerp.
 
 ## References
 
-[1] TrueLend, [repository](https://github.com/queenleoa/TrueLend) (liquidation kernel and parameter-model antecedent).
-[2] Synthetix, [perpetual funding documentation](https://docs.synthetix.io/exchange/perps-basics/funding) and [SIP-279](https://github.com/Synthetixio/SIPs/blob/master/content/sips/sip-279.md) (dynamic funding rates).
-[3] Uniswap Labs, [Uniswap v3 TWAP oracles in proof of stake](https://blog.uniswap.org/uniswap-v3-oracles).
-[4] Mackinga et al., [TWAP oracle attacks: easier done than said?](https://eprint.iacr.org/2022/445.pdf), ePrint 2022/445.
-[5] BitMEX, [perpetual contracts guide](https://www.bitmex.com/app/perpetualContractsGuide) and [insurance fund FAQ](https://www.bitmex.com/blog/bitmex-insurance-fund-your-questions-answered).
+1. Adams et al., *Uniswap v4 Core* and *Uniswap v4 Hooks*.
+2. TrueLend, repository and design notes on AMM-native gradual liquidation.
+3. Uniswap Labs, research on pool-derived time-weighted and truncated price
+   observations.

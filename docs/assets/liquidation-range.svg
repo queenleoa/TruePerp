@@ -1,60 +1,84 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="540" viewBox="0 0 1200 540" role="img" aria-labelledby="title desc">
-  <title id="title">Progressive partial liquidation of a long position</title>
-  <desc id="desc">A price axis shows the healthy region above maintenance, a partial-liquidation band between maintenance and bankruptcy, and the backstop region below bankruptcy.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" role="img" aria-labelledby="title desc">
+  <title id="title">TruePerp fixed liquidation runway for an ETH long</title>
+  <desc id="desc">As ETH price falls from the healthy region into a fixed tick range, the hook sells WETH collateral for USDC in paced chunks, donates a penalty to pool liquidity providers, and repays USDC debt. Recovery above the start tick pauses future chunks. Passing the end tick or losing coverage enables a bounded force close.</desc>
   <defs>
-    <linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#f8fafc"/>
-      <stop offset="1" stop-color="#eef3f9"/>
+      <stop offset="1" stop-color="#edf2f8"/>
     </linearGradient>
-    <linearGradient id="band" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#f5b45a"/>
-      <stop offset="1" stop-color="#f0d679"/>
+    <linearGradient id="range" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f3b15c"/>
+      <stop offset="1" stop-color="#f1d977"/>
     </linearGradient>
-    <marker id="arrowDark" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L0,6 L9,3 z" fill="#26364d"/>
+    <marker id="darkArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#2c3c55"/>
+    </marker>
+    <marker id="violetArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#6959c9"/>
     </marker>
     <style>
-      .t { font: 700 28px Inter, ui-sans-serif, system-ui, sans-serif; fill: #17243a; }
-      .h { font: 700 18px Inter, ui-sans-serif, system-ui, sans-serif; fill: #17243a; }
-      .b { font: 400 15px Inter, ui-sans-serif, system-ui, sans-serif; fill: #3c4d65; }
-      .s { font: 500 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #52647d; }
-      .mono { font: 600 15px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #23344c; }
+      .title { font: 700 27px Inter, ui-sans-serif, system-ui, sans-serif; fill: #17243a; }
+      .heading { font: 700 17px Inter, ui-sans-serif, system-ui, sans-serif; fill: #17243a; }
+      .body { font: 400 14px Inter, ui-sans-serif, system-ui, sans-serif; fill: #3c4d65; }
+      .small { font: 500 12px Inter, ui-sans-serif, system-ui, sans-serif; fill: #53657e; }
+      .mono { font: 650 14px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #263851; }
     </style>
   </defs>
 
-  <rect width="1200" height="540" rx="24" fill="url(#bg2)"/>
-  <text x="600" y="50" text-anchor="middle" class="t">Long-position risk regions</text>
-  <text x="600" y="78" text-anchor="middle" class="b">Price falls from right to left; executed reductions are permanent, while future reductions can pause.</text>
+  <rect width="1200" height="600" rx="24" fill="url(#bg)"/>
+  <text x="600" y="47" text-anchor="middle" class="title">Fixed liquidation runway for a physical ETH long</text>
+  <text x="600" y="74" text-anchor="middle" class="body">Price falls from right to left. Executed swaps are final; only future chunks pause on recovery.</text>
 
-  <rect x="80" y="145" width="285" height="118" rx="14" fill="#f5dddd" stroke="#d37b7b"/>
-  <rect x="365" y="145" width="355" height="118" fill="url(#band)" stroke="#c9923e"/>
-  <rect x="720" y="145" width="400" height="118" rx="14" fill="#dcefe7" stroke="#69a98d"/>
-  <text x="222" y="185" text-anchor="middle" class="h">Backstop region</text>
-  <text x="222" y="214" text-anchor="middle" class="b">Equity exhausted or payout rule invoked</text>
-  <text x="222" y="239" text-anchor="middle" class="s">A defined insolvency outcome is required</text>
-  <text x="542" y="185" text-anchor="middle" class="h">Partial-liquidation band</text>
-  <text x="542" y="214" text-anchor="middle" class="b">Reduce exposure toward target health</text>
-  <text x="542" y="239" text-anchor="middle" class="s">Pause future reductions if health recovers</text>
-  <text x="920" y="185" text-anchor="middle" class="h">Healthy region</text>
-  <text x="920" y="214" text-anchor="middle" class="b">No forced position reduction</text>
-  <text x="920" y="239" text-anchor="middle" class="s">Trader may close voluntarily</text>
+  <rect x="70" y="135" width="285" height="128" rx="15" fill="#f3dede" stroke="#cc7777"/>
+  <rect x="355" y="135" width="410" height="128" fill="url(#range)" stroke="#c58c38"/>
+  <rect x="765" y="135" width="365" height="128" rx="15" fill="#dcefe7" stroke="#66a486"/>
 
-  <line x1="90" y1="310" x2="1110" y2="310" stroke="#26364d" stroke-width="3" marker-end="url(#arrowDark)"/>
-  <text x="1114" y="316" class="b">price</text>
-  <line x1="365" y1="280" x2="365" y2="348" stroke="#9d4141" stroke-width="3"/>
-  <line x1="720" y1="280" x2="720" y2="348" stroke="#8c671d" stroke-width="3"/>
-  <line x1="1000" y1="280" x2="1000" y2="348" stroke="#39775c" stroke-width="3"/>
-  <text x="365" y="374" text-anchor="middle" class="mono">P_bk</text>
-  <text x="365" y="397" text-anchor="middle" class="s">bankruptcy boundary</text>
-  <text x="720" y="374" text-anchor="middle" class="mono">P_maint</text>
-  <text x="720" y="397" text-anchor="middle" class="s">maintenance boundary</text>
-  <text x="1000" y="374" text-anchor="middle" class="mono">E</text>
-  <text x="1000" y="397" text-anchor="middle" class="s">entry price</text>
+  <text x="212" y="172" text-anchor="middle" class="heading">Terminal-backstop region</text>
+  <text x="212" y="201" text-anchor="middle" class="body">range end passed or live coverage lost</text>
+  <text x="212" y="229" text-anchor="middle" class="small">forceClose uses a bounded price limit</text>
 
-  <path d="M965 118 C870 95, 760 104, 675 128 C605 148, 548 135, 500 121" fill="none" stroke="#516a91" stroke-width="3" stroke-dasharray="7 7" marker-end="url(#arrowDark)"/>
-  <text x="742" y="112" text-anchor="middle" class="s">adverse price path</text>
+  <text x="560" y="172" text-anchor="middle" class="heading">Gradual-liquidation range</text>
+  <text x="560" y="201" text-anchor="middle" class="body">paced WETH → USDC exact-input swaps</text>
+  <text x="560" y="229" text-anchor="middle" class="small">net USDC repays debt; penalty goes to pool LPs</text>
 
-  <rect x="260" y="435" width="680" height="65" rx="14" fill="#ffffff" stroke="#a9b7ca"/>
-  <text x="600" y="461" text-anchor="middle" class="mono">required reduction: r ≥ m·d / (m − π)</text>
-  <text x="600" y="486" text-anchor="middle" class="s">m = maintenance ratio · d = range depth · π = penalty rate; feasible before full close only when d &lt; 1 − π/m</text>
+  <text x="948" y="172" text-anchor="middle" class="heading">Healthy region</text>
+  <text x="948" y="201" text-anchor="middle" class="body">no forced collateral conversion</text>
+  <text x="948" y="229" text-anchor="middle" class="small">trader may remain open or close atomically</text>
+
+  <line x1="84" y1="318" x2="1120" y2="318" stroke="#2c3c55" stroke-width="3" marker-end="url(#darkArrow)"/>
+  <text x="1125" y="324" class="body">price</text>
+  <line x1="355" y1="285" x2="355" y2="351" stroke="#a44747" stroke-width="3"/>
+  <line x1="765" y1="285" x2="765" y2="351" stroke="#9a701f" stroke-width="3"/>
+  <line x1="1012" y1="285" x2="1012" y2="351" stroke="#39765b" stroke-width="3"/>
+  <text x="355" y="377" text-anchor="middle" class="mono">tickEnd</text>
+  <text x="355" y="398" text-anchor="middle" class="small">configured far edge</text>
+  <text x="765" y="377" text-anchor="middle" class="mono">tickStart</text>
+  <text x="765" y="398" text-anchor="middle" class="small">LT boundary at open</text>
+  <text x="1012" y="377" text-anchor="middle" class="mono">entry</text>
+  <text x="1012" y="398" text-anchor="middle" class="small">admission has LT headroom</text>
+
+  <path d="M1000 112 C925 93 827 100 760 121 C690 143 625 119 572 108 C520 97 459 108 414 124" fill="none" stroke="#5b6f8e" stroke-width="3" stroke-dasharray="7 7" marker-end="url(#darkArrow)"/>
+  <text x="704" y="105" text-anchor="middle" class="small">adverse price path</text>
+
+  <g>
+    <circle cx="692" cy="318" r="12" fill="#6959c9"/>
+    <circle cx="622" cy="318" r="12" fill="#6959c9"/>
+    <circle cx="548" cy="318" r="12" fill="#6959c9"/>
+    <circle cx="468" cy="318" r="12" fill="#6959c9"/>
+    <path d="M692 342 V421" stroke="#6959c9" stroke-width="2" marker-end="url(#violetArrow)"/>
+    <path d="M622 342 V421" stroke="#6959c9" stroke-width="2" marker-end="url(#violetArrow)"/>
+    <path d="M548 342 V421" stroke="#6959c9" stroke-width="2" marker-end="url(#violetArrow)"/>
+    <path d="M468 342 V421" stroke="#6959c9" stroke-width="2" marker-end="url(#violetArrow)"/>
+  </g>
+
+  <rect x="344" y="429" width="480" height="62" rx="14" fill="#ffffff" stroke="#aab7ca"/>
+  <text x="584" y="454" text-anchor="middle" class="mono">WETH collateral → pool → USDC debt repayment</text>
+  <text x="584" y="477" text-anchor="middle" class="small">size grows with elapsed time and range depth, capped by active liquidity depth</text>
+
+  <path d="M817 291 C861 270 886 276 886 305 C886 340 838 350 791 344" fill="none" stroke="#3f8d6c" stroke-width="2.5" marker-end="url(#darkArrow)"/>
+  <text x="897" y="285" class="small">safe-side recovery pauses</text>
+
+  <rect x="116" y="522" width="968" height="48" rx="12" fill="#e4eaf3" stroke="#a5b2c5"/>
+  <text x="600" y="542" text-anchor="middle" class="small">The trigger ticks are fixed at open; v0 pins debt carry to zero so their geometry cannot drift with time.</text>
+  <text x="600" y="560" text-anchor="middle" class="small">Price gaps can still breach live coverage before tickEnd. The short path mirrors every asset direction.</text>
 </svg>
