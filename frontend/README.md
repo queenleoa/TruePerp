@@ -24,11 +24,14 @@ Node.js `^20.19.0` or `>=22.12.0` is required.
 
 ```bash
 cd frontend
-cp .env.example .env.local
 npm ci
 npm test
 npm run dev
 ```
+
+No local environment file is required for the checked-in hackathon deployment:
+its public addresses are safe defaults in `src/config.ts`. Copy `.env.example`
+to `.env.local` only when overriding the RPC or targeting another deployment.
 
 Build and inspect the same static bundle that a host will serve:
 
@@ -42,6 +45,55 @@ The checked-in `.env.production` supplies only the public, verified Unichain
 Sepolia demo addresses, so a production build links to the deployed market by
 default. Hosting-provider variables may override these values.
 
+## Judge walkthrough
+
+The demo writes to the deployed Unichain Sepolia market. The price chart is a
+simulated presentation series; faucet claims, token approvals, quotes, and
+position opens use the live testnet contracts.
+
+1. Open the application and click **Connect wallet**. Approve the MetaMask
+   request. If prompted, click **Switch to Unichain Sepolia**; the application
+   asks MetaMask to add the network when it is not already configured.
+2. Obtain a small amount of native Unichain Sepolia ETH for gas from a provider
+   listed in the [official Unichain faucet directory](https://developers.uniswap.org/docs/unichain/tools/faucets).
+   Native ETH pays transaction fees. TrueETH (`tETH`) is an ERC-20 demo asset
+   and cannot pay gas.
+3. In **Demo assets**, claim **5 tETH** and **10,000 tUSDC**. Each button sends
+   a real testnet transaction and requires a wallet confirmation. Each token
+   can be claimed only once by a given wallet, and a claim can eventually fail
+   if that token's hard supply cap has been reached.
+4. Choose **Long** or **Short**, enter the tUSDC margin, choose leverage and
+   slippage, then review the live Uniswap v4 quote. Both directions post tUSDC
+   margin: the quote vault lends tUSDC for a long, while the base vault lends
+   tETH for a short. The router and hook admission path is preflighted after a
+   fresh quote, immediately before the open transaction is offered for signing.
+5. If the router's existing tUSDC allowance is too small, approve the exact
+   margin shown in the review. The interface does not request an unlimited
+   token approval. Confirm the subsequent **Open position** transaction.
+6. After confirmation, use the transaction link in the interface to inspect
+   the receipt and `PerpetualOpened` event on
+   [Uniscan](https://sepolia.uniscan.xyz/).
+
+The leverage slider is a target, not a promise of execution at the simulated
+chart price. The client solves the direction-specific debt leg, queries the
+deployed v4 pool, and applies the selected minimum-output tolerance. Near the
+limit it may slightly reduce the borrow leg—for example, a nominal 10× choice
+may quote near 9.95×—to preserve the hook's opening-LTV headroom after price
+impact. MetaMask may still show a revert if the quote changes, pool liquidity
+is insufficient, the lending vault lacks capacity, or an on-chain preflight
+condition changes before execution.
+
+The deployed mock-token addresses are:
+
+| Token | Address | Decimals | Per-wallet claim |
+|---|---|---:|---:|
+| TrueETH (`tETH`) | `0x88b49b8292a9e3174d77c5824dc96E177A56365D` | 18 | 5 tETH |
+| TrueUSDC (`tUSDC`) | `0x1949280616D7Aad370C4fF0BcC2C5a351B90D9e0` | 6 | 10,000 tUSDC |
+
+These addresses can also be imported into MetaMask to make the balances
+visible in the wallet. Both assets are capped, unbacked test tokens with no
+redemption right or external price guarantee.
+
 ## Environment
 
 The market uses semantic token variables:
@@ -54,20 +106,24 @@ The market uses semantic token variables:
 | `VITE_TRUEPERP_HOOK` | Position and liquidation hook |
 | `VITE_POOL_MANAGER` | Uniswap v4 PoolManager |
 | `VITE_POSITION_MANAGER` | Uniswap v4 PositionManager that owns the LP NFT ledger |
+| `VITE_STATE_VIEW` | Canonical Uniswap v4 StateView used to read the live pool mark |
+| `VITE_V4_QUOTER` | Canonical Uniswap v4 Quoter used for executable entry estimates |
 | `VITE_POOL_ID` | TrueETH/TrueUSDC hook-pool identifier |
 | `VITE_DEPLOYMENT_TX` | Optional explorer link target |
 
-`BASE` and `QUOTE` do not imply `currency0` and `currency1`. Uniswap orders a
-`PoolKey` by address, so either mock token may be currency0. Deployment and
-client code must derive ordering from addresses while preserving the semantic
-roles above.
+`BASE` and `QUOTE` do not imply `currency0` and `currency1`. In this checked-in
+deployment, the recorded `PoolKey` is `currency0=tUSDC` and `currency1=tETH`,
+and the client validates that exact ordering. A future deployment with the
+opposite address order must update the PoolKey construction while preserving
+the semantic roles above.
 
-The checked-in example contains the public Unichain Sepolia demo addresses
-recorded in [`deployments/unichain-sepolia.json`](../deployments/unichain-sepolia.json).
-Supplying address-shaped strings changes the banner, but the preview itself
-does **not** prove a deployment is valid. A transactional client must verify
-bytecode, router/hook relationships, pool initialization, market activation,
-vault funding, oracle readiness, and chain ID on-chain.
+The checked-in defaults and example contain the public Unichain Sepolia demo
+addresses recorded in
+[`deployments/unichain-sepolia.json`](../deployments/unichain-sepolia.json).
+Address shape alone does **not** prove a replacement deployment is valid. A
+transactional client must still verify bytecode, router/hook relationships,
+pool initialization, market activation, vault funding, oracle readiness, and
+chain ID on-chain.
 
 The checked-in PoolManager and PositionManager values are from the
 [official Uniswap v4 deployment table](https://developers.uniswap.org/docs/protocols/v4/deployments).
@@ -98,21 +154,23 @@ relative asset paths, so the bundle also works from a static subdirectory.
 
 ## Transaction boundary
 
-The current UI is a presentation-quality simulator. Wallet connection is used
-only for network detection. The application does not read protocol state,
-request token approvals, encode calldata, or submit transactions—even when all
-deployment addresses are supplied.
+The transaction layer connects through the browser's injected wallet, reads
+mock-token balances and claim state, checks the market and admission oracle,
+obtains an executable quote from the deployed Uniswap v4 Quoter, submits an
+exact tUSDC margin approval when needed, and calls
+`TruePerpRouter.openPosition`. Opening therefore asks for at most two wallet
+confirmations: the approval, if needed, followed by the position transaction.
+The router performs the entry swap and opens the physical
+collateral-and-debt position atomically.
 
-A live integration still requires:
+The screen still separates demonstration data from chain data. In particular,
+the candlestick chart and its displayed 2,000 tUSDC/tETH reference price are
+simulated; they are not an external ETH/USD feed or the protocol's pool-local
+oracle. A live quote is time-sensitive, and transaction execution remains
+subject to slippage, vault capacity, oracle readiness, and the opening-LTV
+policy. See the root [deployment guide](../DEPLOYMENT.md) for mock-token supply,
+LP initialization, lending-vault capitalization, and oracle warm-up.
 
-1. an executable Uniswap quote and price-impact model;
-2. direction-specific solving from target leverage to `borrowAmount`;
-3. `minSwapOutput`, deadline, and direction-correct square-root price limits;
-4. TrueUSDC approval and `TruePerpRouter.openPosition` ABI encoding;
-5. post-transaction reconciliation with `getPositionMetrics`; and
-6. explicit handling for reverts, vault capacity, and market/oracle state.
-
-The preview accounts for a 30 bp pool fee but deliberately excludes price
-impact. It is not a guaranteed quote. See the root [deployment guide](../DEPLOYMENT.md)
-for mock-token supply, LP initialization, lending-vault capitalization, and
-oracle warm-up.
+The current hackathon interface opens positions but does not yet provide a
+close-position screen. A confirmed open returns both its transaction hash and
+position ID so the on-chain result can be inspected independently.

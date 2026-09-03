@@ -86,27 +86,37 @@ input:focus-visible {
 .wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   width: max-content;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.1em;
 }
 
-.wordmark > span:last-child {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.05;
-}
-
 .wordmark small {
-  margin-top: 4px;
   color: var(--muted-2);
   font-family: "DM Mono", monospace;
   font-size: 8px;
   font-weight: 400;
   letter-spacing: 0.09em;
   text-transform: uppercase;
+}
+
+.trueperp-logo-crop {
+  display: block;
+  width: 142px;
+  height: 34px;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.trueperp-logo-crop img {
+  display: block;
+  width: 152px;
+  height: auto;
+  transform: translate(-4px, -24px);
+  filter: grayscale(1) invert(1) contrast(5);
+  mix-blend-mode: screen;
 }
 
 .wordmark-symbol {
@@ -760,6 +770,187 @@ input:focus-visible {
   color: var(--coral);
 }
 
+.demo-assets {
+  margin: 0 0 14px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  background: #101411;
+}
+
+.demo-assets-heading,
+.demo-assets-heading > span,
+.demo-gas-row,
+.demo-assets-receipt {
+  display: flex;
+  align-items: center;
+}
+
+.demo-assets-heading {
+  justify-content: space-between;
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.demo-assets-heading > span {
+  gap: 6px;
+}
+
+.demo-assets-heading svg {
+  color: var(--acid);
+}
+
+.demo-refresh {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.demo-refresh:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.demo-assets > p {
+  margin: 5px 0 9px;
+  color: var(--muted-2);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.demo-asset-row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 43px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.demo-token-mark {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.demo-token-mark.eth {
+  background: var(--violet);
+  color: #14121d;
+}
+
+.demo-token-mark.usdc {
+  background: #2775ca;
+  color: #fff;
+}
+
+.demo-token-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.demo-token-copy strong {
+  font-size: 9px;
+}
+
+.demo-token-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: "DM Mono", monospace;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.demo-asset-row > button,
+.demo-wallet-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 27px;
+  padding: 0 8px;
+  border: 1px solid #46533d;
+  background: var(--acid-dark);
+  color: var(--acid);
+  cursor: pointer;
+  font-size: 7px;
+  font-weight: 700;
+}
+
+.demo-asset-row > button.claimed {
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.demo-asset-row > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.demo-wallet-action {
+  width: 100%;
+  margin-top: 8px;
+  border-color: var(--line);
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.demo-gas-row {
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted-2);
+  font-family: "DM Mono", monospace;
+  font-size: 7px;
+}
+
+.demo-gas-row a,
+.demo-assets-receipt {
+  gap: 3px;
+  color: var(--acid);
+}
+
+.demo-assets-error {
+  margin-top: 8px;
+  padding: 6px 7px;
+  border-left: 2px solid var(--coral);
+  background: var(--coral-dark);
+  color: #ffd4ca;
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.demo-assets-receipt {
+  margin-top: 7px;
+  font-size: 7px;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .field-block {
   padding: 12px;
   border: 1px solid var(--line);
@@ -1076,6 +1267,47 @@ input:focus-visible {
   line-height: 1.55;
 }
 
+.protocol-lineage {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 37px;
+  margin: -5px 0 14px;
+  padding: 4px 9px;
+  border: 1px dashed #aaa99f;
+  color: #656861;
+  font-family: "DM Mono", monospace;
+  font-size: 7px;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.protocol-lineage > svg {
+  flex: 0 0 auto;
+  color: #527b26;
+}
+
+.protocol-lineage strong {
+  color: #30342e;
+}
+
+.truelend-logo-crop {
+  display: block;
+  flex: 0 0 111px;
+  width: 111px;
+  height: 25px;
+  overflow: hidden;
+}
+
+.truelend-logo-crop img {
+  display: block;
+  width: 126px;
+  height: auto;
+  transform: translate(-7px, -24px);
+  filter: grayscale(1) contrast(4);
+  mix-blend-mode: multiply;
+}
+
 .explainer-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1332,6 +1564,239 @@ input:focus-visible {
   bottom: 31px;
   width: 82px;
   transform: rotate(-2deg);
+}
+
+.mechanism-math-card {
+  margin-top: 12px;
+  padding: 15px;
+  border: 1.5px solid #30332e;
+  background: #fffdf5;
+  box-shadow: 3px 3px 0 rgba(45, 48, 44, 0.18);
+}
+
+.mechanism-math-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid #c8c6bb;
+}
+
+.mechanism-math-heading span {
+  color: #527b26;
+  font-family: "DM Mono", monospace;
+  font-size: 7px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.mechanism-math-heading h3 {
+  margin: 4px 0 0;
+  font-family: "Caveat", cursive;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.mechanism-math-heading > strong {
+  flex: 0 0 auto;
+  padding: 5px 7px;
+  background: #20231f;
+  color: var(--acid);
+  font-family: "DM Mono", monospace;
+  font-size: 12px;
+}
+
+.mechanism-math-definition {
+  margin: 11px 0;
+  color: #555952;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.mechanism-math-ledger {
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid #d3d0c4;
+  list-style: none;
+  counter-reset: mechanism-ledger;
+}
+
+.mechanism-math-ledger li {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(80px, 0.65fr) minmax(0, 1.35fr);
+  gap: 2px 10px;
+  padding: 9px 0 9px 22px;
+  border-bottom: 1px solid #d3d0c4;
+  counter-increment: mechanism-ledger;
+}
+
+.mechanism-math-ledger li::before {
+  position: absolute;
+  top: 9px;
+  left: 0;
+  color: #85877f;
+  content: "0" counter(mechanism-ledger);
+  font-family: "DM Mono", monospace;
+  font-size: 7px;
+}
+
+.mechanism-math-ledger span {
+  color: #696c65;
+  font-family: "DM Mono", monospace;
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.mechanism-math-ledger strong {
+  overflow-wrap: anywhere;
+  font-family: "DM Mono", monospace;
+  font-size: 8px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.mechanism-math-ledger small {
+  grid-column: 2;
+  color: #81837c;
+  font-size: 7px;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.mechanism-math-equation {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #9cad88;
+  background: #e8f2db;
+}
+
+.short + .mechanism-math-card .mechanism-math-equation {
+  border-color: #c29b91;
+  background: #f5dfd8;
+}
+
+.mechanism-math-equation span {
+  color: #55713a;
+  font-size: 8px;
+}
+
+.mechanism-math-equation strong {
+  font-family: "DM Mono", monospace;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.mechanism-math-risk {
+  margin-top: 14px;
+}
+
+.mechanism-math-risk-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mechanism-math-risk-copy span {
+  color: #696c65;
+  font-size: 8px;
+}
+
+.mechanism-math-risk-copy strong {
+  font-family: "DM Mono", monospace;
+  font-size: 8px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.mechanism-math-risk-track {
+  position: relative;
+  height: 13px;
+  margin-top: 10px;
+  border: 1px solid #4b4e48;
+  background: #eeeade;
+}
+
+.mechanism-math-risk-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  max-width: 100%;
+  background: #b9d991;
+}
+
+.mechanism-math-cap-marker,
+.mechanism-math-lt-marker {
+  position: absolute;
+  z-index: 2;
+  top: -4px;
+  display: block;
+  height: 19px;
+  border-left: 1.5px solid #5e625b;
+}
+
+.mechanism-math-lt-marker {
+  border-left-color: #a15040;
+  border-left-width: 2px;
+}
+
+.mechanism-math-risk-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 11px;
+  margin-top: 7px;
+  color: #686b64;
+  font-family: "DM Mono", monospace;
+  font-size: 6px;
+  text-transform: uppercase;
+}
+
+.mechanism-math-risk-labels span:first-child {
+  color: #426322;
+  font-weight: 600;
+}
+
+.mechanism-math-risk-labels span:last-child {
+  color: #984d3e;
+}
+
+.mechanism-math-risk > p {
+  margin: 9px 0 0;
+  color: #676a63;
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.mechanism-math-roles {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #aaa99f;
+  color: #63665f;
+  font-size: 8px;
+}
+
+.mechanism-math-roles span {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  gap: 7px;
+}
+
+.mechanism-math-roles b {
+  color: #343733;
+  font-family: "DM Mono", monospace;
+  font-size: 7px;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
 .liquidation-canvas {
@@ -1624,6 +2089,8 @@ input:focus-visible {
 .preview-dialog {
   position: relative;
   width: min(570px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
   padding: 27px;
   border: 1px solid #343b36;
   background: #101411;
@@ -1722,6 +2189,246 @@ input:focus-visible {
   color: #9c95bd;
   font-size: 9px;
   line-height: 1.5;
+}
+
+.quote-loading {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  min-height: 145px;
+  margin: 18px 0;
+  padding: 32px 18px;
+  border: 1px solid var(--line);
+  background: #0a0d0b;
+  text-align: center;
+}
+
+.quote-loading svg {
+  color: var(--acid);
+}
+
+.quote-loading strong {
+  font-size: 11px;
+}
+
+.quote-loading span {
+  max-width: 360px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.live-quote-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.live-quote-grid > div {
+  display: flex;
+  min-height: 53px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 9px 11px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.live-quote-grid span {
+  color: var(--muted-2);
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.live-quote-grid strong {
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.quote-adjustment,
+.transaction-progress,
+.dialog-error,
+.dialog-transaction-link {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.quote-adjustment {
+  margin-top: 10px;
+  padding: 10px;
+  border-left: 2px solid var(--acid);
+  background: var(--acid-dark);
+  color: #b7cda1;
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.quote-adjustment svg,
+.transaction-progress svg,
+.dialog-error svg {
+  flex: 0 0 auto;
+}
+
+.transaction-progress {
+  align-items: center;
+  margin: 11px 0;
+  padding: 10px;
+  border: 1px solid #47553f;
+  background: #121a10;
+  color: #c8dbb5;
+  font-size: 9px;
+}
+
+.transaction-progress > span {
+  flex: 1;
+}
+
+.transaction-progress > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--acid);
+  font-size: 8px;
+}
+
+.dialog-error {
+  margin: 11px 0;
+  padding: 10px;
+  border-left: 2px solid var(--coral);
+  background: var(--coral-dark);
+  color: #ffd4ca;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.live-block {
+  margin-top: 12px;
+  border-left-color: var(--acid);
+  background: var(--acid-dark);
+}
+
+.live-block strong {
+  color: var(--acid);
+}
+
+.live-block span {
+  color: #9eaf8e;
+}
+
+.dialog-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 43px;
+  margin-top: 14px;
+  padding: 0 12px;
+  border: 0;
+  background: var(--acid);
+  color: #10150d;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.dialog-submit.short {
+  background: var(--coral);
+  color: #21110d;
+}
+
+.dialog-submit:disabled,
+.dialog-back:disabled,
+.dialog-done:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.dialog-back {
+  width: 100%;
+  margin-top: 9px;
+  padding: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.dialog-back:hover {
+  color: var(--ink);
+}
+
+.trade-success {
+  text-align: center;
+}
+
+.trade-success .eyebrow {
+  margin-top: 12px;
+}
+
+.trade-success > p {
+  margin: 10px auto 18px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.success-mark {
+  display: grid;
+  width: 49px;
+  height: 49px;
+  margin: 0 auto;
+  place-items: center;
+  border: 1px solid #587044;
+  border-radius: 50%;
+  background: var(--acid-dark);
+  color: var(--acid);
+}
+
+.receipt-details {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.receipt-details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.receipt-details > div:last-child {
+  border-bottom: 0;
+}
+
+.receipt-details dt {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.receipt-details dd {
+  margin: 0;
+  font-family: "DM Mono", monospace;
+  font-size: 8px;
+  text-align: right;
+}
+
+.dialog-transaction-link {
+  align-items: center;
+  justify-content: center;
+  margin-top: 13px;
+  color: var(--acid);
+  font-size: 9px;
 }
 
 .dialog-done {
@@ -1970,6 +2677,24 @@ input:focus-visible {
   .note-atomic,
   .note-result {
     display: none;
+  }
+
+  .mechanism-math-card {
+    padding: 12px;
+  }
+
+  .mechanism-math-ledger li {
+    grid-template-columns: 1fr;
+  }
+
+  .mechanism-math-ledger strong,
+  .mechanism-math-ledger small {
+    grid-column: 1;
+    text-align: left;
+  }
+
+  .mechanism-math-roles span {
+    grid-template-columns: 69px 1fr;
   }
 
   .liquidation-canvas {

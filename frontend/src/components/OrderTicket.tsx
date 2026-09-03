@@ -8,7 +8,9 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
+import { DemoAssets } from "./DemoAssets";
 import { hasAddressConfiguration } from "../config";
+import type { DemoToken, WalletSnapshot } from "../lib/trading";
 import {
   Direction,
   ENTRY_PRICE,
@@ -30,7 +32,17 @@ interface OrderTicketProps {
   correctChain: boolean;
   onConnect: () => void;
   onSwitchNetwork: () => void;
-  onPreview: () => void;
+  onPreview: (slippageBps: number) => void;
+  transactionPending: boolean;
+  demoAssets: {
+    snapshot: WalletSnapshot | null;
+    loading: boolean;
+    pendingToken: DemoToken | null;
+    error: string;
+    transactionHash?: string;
+    onClaim: (token: DemoToken) => void;
+    onRefresh: () => void;
+  };
 }
 
 export function OrderTicket({
@@ -45,6 +57,8 @@ export function OrderTicket({
   onConnect,
   onSwitchNetwork,
   onPreview,
+  transactionPending,
+  demoAssets,
 }: OrderTicketProps) {
   const [slippage, setSlippage] = useState("0.50");
   const [showSettings, setShowSettings] = useState(false);
@@ -72,20 +86,25 @@ export function OrderTicket({
   const actionLabel = !marginIsValid
     ? "Enter margin"
     : !walletAddress
-    ? "Preview position"
+    ? "Connect wallet"
     : !correctChain
       ? "Switch to Unichain"
       : hasAddressConfiguration
-        ? "Review position"
+        ? "Review live position"
         : "Preview position";
 
   const handleAction = () => {
     if (!marginIsValid) return;
-    if (walletAddress && !correctChain) {
+    if (!walletAddress) {
+      onConnect();
+      return;
+    }
+    if (!correctChain) {
       onSwitchNetwork();
       return;
     }
-    onPreview();
+    if (!slippageIsValid) return;
+    onPreview(Math.round(parsedSlippage * 100));
   };
 
   return (
@@ -122,8 +141,8 @@ export function OrderTicket({
             <span>%</span>
           </div>
           <small>
-            Illustrative only in this build. A transaction client must convert
-            this limit into <code>minSwapOutput</code> from a live quote.
+            Applied to the live v4 quote as the router's on-chain
+            <code> minSwapOutput</code> bound.
           </small>
           {!slippageIsValid && <small className="field-error">Enter 0.01%–5%.</small>}
         </div>
@@ -150,10 +169,28 @@ export function OrderTicket({
         </button>
       </div>
 
+      <DemoAssets
+        correctChain={correctChain}
+        error={demoAssets.error}
+        loading={demoAssets.loading}
+        onClaim={demoAssets.onClaim}
+        onConnect={onConnect}
+        onRefresh={demoAssets.onRefresh}
+        onSwitchNetwork={onSwitchNetwork}
+        pendingToken={demoAssets.pendingToken}
+        snapshot={demoAssets.snapshot}
+        transactionHash={demoAssets.transactionHash}
+        walletAddress={walletAddress}
+      />
+
       <div className="field-block">
         <div className="field-label">
           <label htmlFor="margin">Margin</label>
-          <span>Balance —</span>
+          <span>
+            Balance {demoAssets.snapshot
+              ? `${formatNumber(Number(demoAssets.snapshot.formatted.trueUsdcBalance), 2)} tUSDC`
+              : "—"}
+          </span>
         </div>
         <div className="amount-input">
           <input
@@ -254,7 +291,7 @@ export function OrderTicket({
             <dd>{formatQuote(ENTRY_PRICE)}</dd>
           </div>
           <div>
-            <dt>Illustrative slippage limit</dt>
+            <dt>Maximum slippage</dt>
             <dd>{slippageIsValid ? slippage : "—"}%</dd>
           </div>
         </dl>
@@ -262,25 +299,19 @@ export function OrderTicket({
 
       <button
         className={`primary-action ${direction}`}
-        disabled={!marginIsValid}
+        disabled={!marginIsValid || !slippageIsValid || transactionPending}
         onClick={handleAction}
         type="button"
       >
         <Sparkles size={17} />
-        {actionLabel}
+        {transactionPending ? "Please wait…" : actionLabel}
       </button>
-
-      {!walletAddress && (
-        <button className="text-action" onClick={onConnect} type="button">
-          Connect wallet for network detection
-        </button>
-      )}
 
       <div className="execution-note">
         {hasAddressConfiguration ? <Info size={14} /> : <CircleAlert size={14} />}
         <span>
           {hasAddressConfiguration
-            ? "Demo-market addresses are present. This build does not verify bytecode, encode calldata, or submit transactions."
+            ? "Live testnet mode: the review uses the deployed v4 Quoter, then requests an exact-margin approval and opens through the TruePerp router."
             : "Demo mode: no complete TruePerp market configuration is present and no transaction can be sent."}
         </span>
       </div>

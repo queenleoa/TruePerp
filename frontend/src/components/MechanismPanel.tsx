@@ -15,6 +15,7 @@ import {
   Direction,
   formatNumber,
   formatQuote,
+  LIQUIDATION_THRESHOLD,
   PositionPreview,
 } from "../lib/leverage";
 
@@ -37,6 +38,20 @@ function FlowArrow({ label }: { label?: string }) {
 export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
   const [view, setView] = useState<ExplainerView>("open");
   const long = direction === "long";
+  const admissionCap = 0.9025;
+  const ltvHeadroom = Math.max(
+    0,
+    (LIQUIDATION_THRESHOLD - preview.openingLtv) * 100,
+  );
+  const ownedAsset = long
+    ? `${formatNumber(preview.baseExposure, 3)} tETH worth ${formatQuote(preview.collateralValue)}`
+    : `${formatQuote(preview.collateralValue)} after the tETH sale`;
+  const debtAsset = long
+    ? `${formatQuote(preview.borrowValue)} from the quote vault`
+    : `${formatNumber(preview.debtBase, 3)} tETH (worth ${formatQuote(preview.borrowValue)}) from the base vault`;
+  const directionalExposure = long
+    ? formatQuote(preview.directionalNotional)
+    : `${formatNumber(preview.debtBase, 3)} tETH, worth ${formatQuote(preview.directionalNotional)}`;
 
   return (
     <aside className="mechanism-panel" aria-label="How TruePerp leverage works">
@@ -53,6 +68,14 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
         a real collateral-and-debt position, not a synthetic bet against an LP
         vault. Ordinary Uniswap flow—or a permissionless poke—advances its unwind.
       </p>
+
+      <div className="protocol-lineage" aria-label="TrueLend powers TruePerp leverage">
+        <span className="truelend-logo-crop" aria-hidden="true">
+          <img src="/brand/truelend-logo.png" alt="" />
+        </span>
+        <ArrowRight size={15} strokeWidth={1.5} aria-hidden="true" />
+        <span><strong>isolated credit</strong> becomes physical leveraged exposure</span>
+      </div>
 
       <div className="explainer-tabs" role="group" aria-label="Mechanism stage">
         <button
@@ -74,7 +97,8 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
       </div>
 
       {view === "open" ? (
-        <div className={`sketch-canvas ${direction}`}>
+        <>
+          <div className={`sketch-canvas ${direction}`}>
           <span className="sketch-caption">one atomic PoolManager unlock</span>
           <svg className="rough-lines" viewBox="0 0 480 350" preserveAspectRatio="none" aria-hidden="true">
             <path d="M118 69 C150 61, 168 70, 193 80" />
@@ -95,7 +119,7 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
 
           <div className="sketch-node vault-node">
             <Landmark size={18} />
-            <small>TrueLend vault lends</small>
+            <small>{long ? "Quote vault lends" : "Base vault lends"}</small>
             <strong>
               {long
                 ? formatQuote(preview.borrowValue, 0)
@@ -148,7 +172,90 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
           <div className="hand-note note-result">
             this is the {direction} ↓<br />not a pool-side IOU
           </div>
-        </div>
+          </div>
+
+          <section className="mechanism-math-card" aria-label="Leverage calculation">
+            <div className="mechanism-math-heading">
+              <div>
+                <span>Why the slider produces {preview.leverage.toFixed(1)}×</span>
+                <h3>Debt is solved from the leverage target.</h3>
+              </div>
+              <strong>{preview.realizedLeverage.toFixed(2)}×</strong>
+            </div>
+
+            <p className="mechanism-math-definition">
+              Leverage is directional notional divided by equity—not the amount
+              borrowed divided by margin. For a {direction}, directional notional
+              is {long ? "the value of all tETH owned" : "the value of the borrowed tETH sold short"}.
+            </p>
+
+            <ol className="mechanism-math-ledger">
+              <li>
+                <span>Trader margin</span>
+                <strong>{formatQuote(preview.margin)}</strong>
+                <small>your capital, deposited as tUSDC</small>
+              </li>
+              <li>
+                <span>Vault debt</span>
+                <strong>{debtAsset}</strong>
+                <small>{long ? "the quote vault lends tUSDC" : "the base vault lends tETH"}</small>
+              </li>
+              <li>
+                <span>After the pool swap</span>
+                <strong>{ownedAsset}</strong>
+                <small>estimated after the 30 bp fee; price impact is not included</small>
+              </li>
+              <li>
+                <span>Entry equity</span>
+                <strong>
+                  {formatQuote(preview.collateralValue)} − {formatQuote(preview.borrowValue)} = {formatQuote(preview.equityValue)}
+                </strong>
+                <small>owned collateral value minus marked debt value</small>
+              </li>
+            </ol>
+
+            <div className="mechanism-math-equation">
+              <span>{long ? "owned tETH value" : "borrowed tETH value"} ÷ equity</span>
+              <strong>
+                {directionalExposure} ÷ {formatQuote(preview.equityValue)} = {preview.realizedLeverage.toFixed(2)}×
+              </strong>
+            </div>
+
+            <div className="mechanism-math-risk">
+              <div className="mechanism-math-risk-copy">
+                <span>Opening LTV = debt value ÷ collateral value</span>
+                <strong>
+                  {formatQuote(preview.borrowValue)} ÷ {formatQuote(preview.collateralValue)} = {(preview.openingLtv * 100).toFixed(2)}%
+                </strong>
+              </div>
+              <div className="mechanism-math-risk-track" aria-label={`Opening LTV ${(preview.openingLtv * 100).toFixed(2)} percent`}>
+                <i
+                  className="mechanism-math-risk-fill"
+                  style={{ width: `${Math.min(100, preview.openingLtv * 100)}%` }}
+                />
+                <i className="mechanism-math-cap-marker" style={{ left: `${admissionCap * 100}%` }} />
+                <i className="mechanism-math-lt-marker" style={{ left: `${LIQUIDATION_THRESHOLD * 100}%` }} />
+              </div>
+              <div className="mechanism-math-risk-labels">
+                <span>current {(preview.openingLtv * 100).toFixed(2)}%</span>
+                <span>admission cap 90.25%</span>
+                <span>liquidation threshold 95%</span>
+              </div>
+              <p>
+                The protocol admits a new position only at or below 90.25% LTV
+                (95% of the 95% liquidation threshold). This preview therefore
+                has {ltvHeadroom.toFixed(2)} percentage points before gradual
+                liquidation becomes eligible.
+              </p>
+            </div>
+
+            <div className="mechanism-math-roles">
+              <span><b>Vault</b> lends the asset and records debt.</span>
+              <span><b>Uniswap pool</b> executes entry, exit, and unwind swaps.</span>
+              <span><b>Hook</b> enforces admission and advances gradual liquidation.</span>
+            </div>
+          </section>
+        </>
       ) : (
         <div className={`liquidation-canvas ${direction}`}>
           <div className="risk-scale">

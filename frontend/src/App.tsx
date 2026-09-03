@@ -22,6 +22,8 @@ import {
   UNICHAIN_SEPOLIA,
 } from "./config";
 import { useWallet } from "./hooks/useWallet";
+import { useTruePerp } from "./hooks/useTruePerp";
+import type { TradeRequest } from "./lib/trading";
 import { Direction, previewPosition } from "./lib/leverage";
 
 function App() {
@@ -29,7 +31,12 @@ function App() {
   const [marginInput, setMarginInput] = useState("1000");
   const [leverage, setLeverage] = useState(5);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [slippageBps, setSlippageBps] = useState(50);
   const wallet = useWallet();
+  const truePerp = useTruePerp({
+    address: wallet.address,
+    isCorrectChain: wallet.isCorrectChain,
+  });
   const rawMargin = Number(marginInput.replace(/,/g, ""));
   const margin = Number.isFinite(rawMargin) && rawMargin > 0 ? rawMargin : 0;
   const preview = useMemo(
@@ -43,12 +50,33 @@ function App() {
       ? formatAddress(wallet.address)
       : "Connect wallet";
 
+  const tradeRequest: TradeRequest = {
+    direction,
+    margin: marginInput,
+    leverage,
+    slippageBps,
+  };
+
+  const reviewPosition = (nextSlippageBps: number) => {
+    const request = { ...tradeRequest, slippageBps: nextSlippageBps };
+    setSlippageBps(nextSlippageBps);
+    truePerp.clearFeedback();
+    setDialogOpen(true);
+    void truePerp.requestQuote(request);
+  };
+
+  const openPosition = async () => {
+    await truePerp.open(tradeRequest);
+  };
+
   return (
     <div className="app-shell">
       <header className="site-header">
         <a className="wordmark" href="#top" aria-label="TruePerp home">
-          <span className="wordmark-symbol" aria-hidden="true">T<span>P</span></span>
-          <span>TRUEPERP<small>physical perps</small></span>
+          <span className="trueperp-logo-crop" aria-hidden="true">
+            <img src="/brand/trueperp-logo.jpg" alt="" />
+          </span>
+          <small>physical perps</small>
         </a>
 
         <nav className="primary-nav" aria-label="Primary navigation">
@@ -84,11 +112,11 @@ function App() {
       <div className={`environment-banner ${hasAddressConfiguration ? "configured" : "demo"}`}>
         <div>
           {hasAddressConfiguration ? <CheckCircle2 size={14} /> : <FlaskConical size={14} />}
-          <strong>{hasAddressConfiguration ? "Config supplied" : "Interactive demo"}</strong>
+          <strong>{hasAddressConfiguration ? "Live testnet" : "Interactive demo"}</strong>
           <span>
             {hasAddressConfiguration
-              ? `TrueETH / TrueUSDC addresses supplied · Router ${formatAddress(deployment.router)} · preview only`
-              : "Unbacked TrueETH / TrueUSDC demo assets · illustrative balances · no transactions sent"}
+              ? `TrueETH / TrueUSDC live on testnet · Router ${formatAddress(deployment.router)} · wallet transactions enabled`
+              : "Unbacked TrueETH / TrueUSDC demo assets · deployment configuration missing"}
           </span>
         </div>
         {hasAddressConfiguration && (
@@ -125,9 +153,24 @@ function App() {
               onDirectionChange={setDirection}
               onLeverageChange={setLeverage}
               onMarginChange={setMarginInput}
-              onPreview={() => setDialogOpen(true)}
+              onPreview={reviewPosition}
               onSwitchNetwork={wallet.switchNetwork}
+              transactionPending={truePerp.isBusy}
               walletAddress={wallet.address}
+              demoAssets={{
+                snapshot: truePerp.snapshot,
+                loading: truePerp.isBusy,
+                pendingToken:
+                  truePerp.action === "claimTrueEth"
+                    ? "trueEth"
+                    : truePerp.action === "claimTrueUsdc"
+                      ? "trueUsdc"
+                      : null,
+                error: dialogOpen ? "" : truePerp.error,
+                transactionHash: truePerp.lastFaucetReceipt?.hash,
+                onClaim: (token) => void truePerp.claim(token),
+                onRefresh: () => void truePerp.refresh(),
+              }}
             />
           </div>
         </section>
@@ -154,9 +197,22 @@ function App() {
 
       <PreviewDialog
         direction={direction}
-        onClose={() => setDialogOpen(false)}
+        error={truePerp.error}
+        loadingQuote={truePerp.action === "quote"}
+        onClose={() => {
+          if (truePerp.action !== "trade") {
+            setDialogOpen(false);
+            truePerp.clearFeedback();
+          }
+        }}
+        onOpen={() => void openPosition()}
+        onRetryQuote={() => void truePerp.requestQuote(tradeRequest)}
         open={dialogOpen}
+        progress={truePerp.progress}
         preview={preview}
+        quote={truePerp.quote}
+        receipt={truePerp.lastTrade}
+        submitting={truePerp.action === "trade"}
       />
     </div>
   );
