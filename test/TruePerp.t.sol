@@ -201,6 +201,14 @@ contract TruePerpTest is Test, Deployers {
         assertTrue(active);
         assertTrue(baseIs0);
         assertEq(hook.getConfig(poolId).termSeconds, type(uint32).max);
+        assertEq(baseVault.baseRateBps(), 0);
+        assertEq(baseVault.slope1Bps(), 0);
+        assertEq(baseVault.slope2Bps(), 0);
+        assertEq(baseVault.rateCeilingBps(), 0);
+        assertEq(baseVault.reserveFactorBps(), 0);
+        assertEq(baseVault.utilCapBps(), 9000);
+        assertEq(quoteVault.rateBps(10_000), 0);
+        assertLe(address(hook).code.length, 24_576, "hook must remain deployable under EIP-170");
     }
 
     function test_marketCanOrientBaseAsCurrency1() public {
@@ -222,6 +230,113 @@ contract TruePerpTest is Test, Deployers {
         (bool active, bool baseIs0) = router.getMarket(reverseId);
         assertTrue(active);
         assertFalse(baseIs0);
+
+        a.mint(address(this), 1_000_000e18);
+        b.mint(address(this), 1_000_000e18);
+        a.approve(address(modifyLiquidityRouter), type(uint256).max);
+        b.approve(address(modifyLiquidityRouter), type(uint256).max);
+        modifyLiquidityRouter.modifyLiquidity(
+            reverseKey,
+            ModifyLiquidityParams({tickLower: -887220, tickUpper: 887220, liquidityDelta: 100_000e18, salt: 0}),
+            ""
+        );
+
+        (LendingVault reverseQuoteVault, LendingVault reverseBaseVault,,) = hook.getPool(reverseId);
+        a.approve(address(reverseQuoteVault), type(uint256).max);
+        b.approve(address(reverseBaseVault), type(uint256).max);
+        reverseQuoteVault.deposit(20_000e18, address(this));
+        reverseBaseVault.deposit(20_000e18, address(this));
+
+        a.mint(alice, 10_000e18);
+        vm.startPrank(alice);
+        a.approve(address(router), type(uint256).max);
+        b.approve(address(router), type(uint256).max);
+        vm.stopPrank();
+
+        a.mint(whale, 1_000_000e18);
+        b.mint(whale, 1_000_000e18);
+        vm.startPrank(whale);
+        a.approve(address(swapRouter), type(uint256).max);
+        b.approve(address(swapRouter), type(uint256).max);
+        vm.stopPrank();
+        for (uint256 i = 0; i < 9; i++) {
+            skip(61);
+            vm.prank(whale);
+            swapRouter.swap(
+                reverseKey,
+                SwapParams({
+                    zeroForOne: true, amountSpecified: -int256(1e15), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                }),
+                PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+                ""
+            );
+            vm.prank(whale);
+            swapRouter.swap(
+                reverseKey,
+                SwapParams({
+                    zeroForOne: false, amountSpecified: -int256(1e15), sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+                }),
+                PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+                ""
+            );
+        }
+
+        vm.startPrank(alice);
+        bytes32 longId = router.openPosition(
+            TruePerpRouter.OpenParams({
+                key: reverseKey,
+                isLong: true,
+                margin: MARGIN,
+                borrowAmount: BORROW,
+                liquidationThresholdBps: LT_BPS,
+                minSwapOutput: 370e18,
+                sqrtPriceLimitX96: 0,
+                deadline: block.timestamp
+            })
+        );
+        TrueLendHook.Position memory position = hook.getPosition(longId);
+        assertFalse(position.collateralIs0, "BASE long collateral is currency1");
+        assertApproxEqAbs(hook.debtOf(longId), BORROW, 1);
+        router.closePosition(
+            TruePerpRouter.CloseParams({
+                key: reverseKey,
+                positionId: longId,
+                maxCollateralIn: position.collateral,
+                sqrtPriceLimitX96: 0,
+                deadline: block.timestamp
+            })
+        );
+
+        bytes32 shortId = router.openPosition(
+            TruePerpRouter.OpenParams({
+                key: reverseKey,
+                isLong: false,
+                margin: MARGIN,
+                borrowAmount: BORROW,
+                liquidationThresholdBps: LT_BPS,
+                minSwapOutput: 370e18,
+                sqrtPriceLimitX96: 0,
+                deadline: block.timestamp
+            })
+        );
+        position = hook.getPosition(shortId);
+        assertTrue(position.collateralIs0, "QUOTE short collateral is currency0");
+        assertApproxEqAbs(hook.debtOf(shortId), BORROW, 1);
+        router.closePosition(
+            TruePerpRouter.CloseParams({
+                key: reverseKey,
+                positionId: shortId,
+                maxCollateralIn: position.collateral,
+                sqrtPriceLimitX96: 0,
+                deadline: block.timestamp
+            })
+        );
+        vm.stopPrank();
+
+        assertEq(reverseQuoteVault.totalBorrowShares(), 0);
+        assertEq(reverseBaseVault.totalBorrowShares(), 0);
+        assertEq(a.balanceOf(address(router)), 0);
+        assertEq(b.balanceOf(address(router)), 0);
     }
 
     function test_realisticWethUsdcDecimalsOpenAndClose() public {
@@ -317,10 +432,40 @@ contract TruePerpTest is Test, Deployers {
                 deadline: block.timestamp
             })
         );
+
+        bytes32 shortId = router.openPosition(
+            TruePerpRouter.OpenParams({
+                key: realisticKey,
+                isLong: false,
+                margin: 1000e6,
+                borrowAmount: 2e18,
+                liquidationThresholdBps: LT_BPS,
+                minSwapOutput: 3500e6,
+                sqrtPriceLimitX96: 0,
+                deadline: block.timestamp
+            })
+        );
+        position = hook.getPosition(shortId);
+        assertEq(position.collateralIs0, !baseIs0);
+        assertGt(position.collateral, 4500e6, "USDC collateral includes sale proceeds and margin");
+        assertLt(position.collateral, 5100e6);
+        assertApproxEqAbs(hook.debtOf(shortId), 2e18, 1, "WETH debt keeps eighteen-decimal units");
+
+        router.closePosition(
+            TruePerpRouter.CloseParams({
+                key: realisticKey,
+                positionId: shortId,
+                maxCollateralIn: position.collateral,
+                sqrtPriceLimitX96: 0,
+                deadline: block.timestamp
+            })
+        );
         vm.stopPrank();
 
         assertEq(hook.getPosition(id).borrower, address(0));
+        assertEq(hook.getPosition(shortId).borrower, address(0));
         assertEq(realisticQuoteVault.totalBorrowShares(), 0);
+        assertEq(realisticBaseVault.totalBorrowShares(), 0);
         assertEq(weth18.balanceOf(address(router)), 0);
         assertEq(usdc6.balanceOf(address(router)), 0);
     }

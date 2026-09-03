@@ -2,12 +2,12 @@
 
 ## Document status
 
-This document specifies the target hackathon architecture for TruePerp. It
+This document specifies the shipped v0 hackathon architecture for TruePerp. It
 replaces the earlier cash-settled counterparty model with expiry-free positions
 backed by real spot inventory and real debt. The objective is to preserve
 TrueLend's defining mechanism: liquidation is an active, gradual swap process
-driven by Uniswap v4 callbacks, and in-range LPs are paid for absorbing that
-flow.
+driven by Uniswap v4 callbacks. Swap fees accrue along the execution path, and
+liquidity active after a chunk receives the separate liquidation donation.
 
 The shipped v0 deliberately uses zero-rate debt vaults. Fixed debt keeps the
 opening liquidation ticks valid and isolates the swap-driven liquidation
@@ -162,6 +162,13 @@ that pool in `TruePerpRouter`, it is not a canonical TruePerp market. Its assets
 and debt remain isolated by pool ID, although the inherited raw interface is
 still reachable. A production version should expose a router-authorized opening
 path while leaving repayment and liquidation permissionless.
+
+The inherited per-tick trigger list is capped at 32 positions. Because the
+default `minBorrow` is zero and only a strictly nonzero amount is required,
+dust positions with a repeated collateral/debt ratio can cheaply exhaust a
+popular aligned boundary. This does not corrupt existing positions, but it can
+deny new admission at that tick. The production opening path needs normalized
+minimum notionals and a paginated or otherwise non-exhaustible trigger index.
 
 ## 4. Counterparty map
 
@@ -418,7 +425,9 @@ whenever collateral value exceeds debt. Penalties and slippage consume equity,
 so the accounting uses actual balances and actual debt shares. Processing
 continues at the configured cadence while the pool tick remains in the range;
 it pauses when price returns to the safe side. A later adverse crossing resumes
-the same gradual process.
+the same gradual process. Crossing out through the adverse far edge is not a
+recovery pause: it ends the gradual runway and makes the position eligible for
+the terminal backstop.
 
 Completed chunks are final. “Reversible liquidation” means the process can stop
 and preserve the unconverted remainder; it does not reverse prior swaps.
@@ -449,7 +458,9 @@ leaves the financing subsidy visible instead of implying unsupported yield.
 There is no practical scheduled maturity. Because the inherited compact
 position layout requires a nonzero 32-bit term, the demo encodes this with the
 maximum term, about 136 years. That sentinel is an implementation convenience,
-not literal mathematical infinity.
+not literal mathematical infinity. Pool observations use a separate 32-bit
+timestamp that wraps in 2106, so a real long-lived deployment would require a
+clock migration well before the sentinel.
 
 ## 10. Solvency and loss allocation
 
@@ -585,10 +596,23 @@ long still sells WETH, and a rising ETH short still buys it. TruePerp bounds and
 paces that flow; it does not claim to abolish it. A sufficiently fast gap can
 cross the liquidation range before enough chunks execute and create bad debt.
 
+The specialized hook is also at the deployment-size boundary. With the
+checked-in compiler and optimizer settings its runtime is 24,543 bytes, leaving
+33 bytes below EIP-170. Product features should remain in periphery contracts
+unless the inherited kernel is first decomposed; every compiler or kernel
+change must repeat the bytecode-size check.
+
 Pool-local pricing also means pool-local truth. If the selected pool diverges
 from the wider market, TruePerp follows this pool until arbitrage restores the
 relationship. Supporting arbitrary assets or external indexes would require a
 different oracle and settlement design.
+
+The chunk cap extrapolates current active liquidity over the full runway and
+ordinary chunks have no local sqrt-price limit. Narrow or just-in-time
+liquidity can therefore make the proxy overstate executable depth. The
+post-swap donation is allocated to liquidity active at the final tick, not
+necessarily to every LP that filled the route in the same proportion. Both the
+execution bound and donation-capture incentives require adversarial testing.
 
 ## 14. Hackathon parameter profile
 
@@ -601,7 +625,7 @@ The demo should prefer observable behavior over maximum leverage:
 | Borrow amount | capped by admission LTV, vault cash, and the hard utilization ceiling; not by range depth |
 | Liquidation cadence | visible multi-step decay over several swaps |
 | Chunks per callback | small fixed constant |
-| Chunk input | collateral amount capped as a small fraction of active range depth |
+| Chunk input | collateral amount capped as a small fraction of the active-liquidity range proxy |
 | Admission price | borrower-adverse pool-local filtered value |
 | Voluntary execution | deadline plus caller price/output bound |
 | Terminal execution | bounded price movement with partial-fill retry |
@@ -614,7 +638,7 @@ implemented depth constraint applies to each liquidation chunk.
 
 ## 15. Test status and required properties
 
-The root suite contains 14 TruePerp integration tests. The inherited TrueLend
+The root suite contains 16 TruePerp integration tests. The inherited TrueLend
 engine has 94 tests in its own project; a root `forge test` does not substitute
 for running that suite when the kernel changes. Together, the suites should
 establish the following properties:
@@ -660,8 +684,9 @@ A persuasive demo follows one position end to end:
 8. run the mirrored short path, where USDC buys WETH to repay the base vault.
 
 The demo's central observation should be visible from token balances, not only
-events: liquidation exchanges real collateral, repays real debt, and rewards the
-LPs that actually absorb the trade.
+events: liquidation exchanges real collateral, repays real debt, and donates to
+liquidity active at the post-chunk tick. Swap fees, rather than the donation,
+track liquidity traversed during execution.
 
 ## 17. Conclusion
 
@@ -672,7 +697,8 @@ removes the need for an unhedged cash house and makes liquidation the same
 operation as TrueLend's core insight—an active, paced conversion through the
 market that triggered it.
 
-Uniswap LPs execute and are paid for the liquidation flow. Protocol-seeded
-vault capital funds v0 leverage and owns the remaining credit tail without
-earning interest. The hook connects those roles without pretending that this
-mechanism-only financing profile is a finished production market.
+Uniswap LPs execute the liquidation flow, earn swap fees, and may receive the
+post-trade donation when active at the final tick. Protocol-seeded vault capital
+funds v0 leverage and owns the remaining credit tail without earning interest.
+The hook connects those roles without pretending that this mechanism-only
+financing profile is a finished production market.

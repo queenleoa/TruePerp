@@ -5,12 +5,14 @@
 This document parameterizes TruePerp's approved physical architecture: an
 expiry-free WETH long holds WETH and owes USDC; an expiry-free WETH short holds
 USDC and owes WETH. Entry, exit, gradual liquidation, and terminal close use
-actual WETH/USDC pool swaps. Debt-vault interest is carry. There is no marked
-cash-PnL liability or long-short funding ledger.
+actual WETH/USDC pool swaps. The v0 supporting vaults are protocol-seeded and
+charge zero borrow interest. There is no marked cash-PnL liability, borrow
+carry, or long-short funding ledger.
 
 Values marked **prototype** are inherited from the current TrueLend liquidation
-kernel or vault factory. Values marked **illustrative** are useful for a
-hackathon trace but are not empirically calibrated production recommendations.
+kernel or fixed by `PerpLendingVaultFactory`. Values marked **illustrative** are
+useful for a hackathon trace but are not empirically calibrated production
+recommendations.
 
 ## 1. Units and orientation
 
@@ -31,9 +33,9 @@ math remains in native units.
 |---|---|
 | $P$ | quote per base at the chosen risk point |
 | $C_b$ | WETH held by a long |
-| $D_q$ | current USDC debt of a long, including interest |
+| $D_q$ | outstanding USDC debt of a long |
 | $C_q$ | USDC held by a short |
-| $D_b$ | current WETH debt of a short, including interest |
+| $D_b$ | outstanding WETH debt of a short |
 | $Q_L,Q_S$ | long and short equity in quote units |
 | $\ell_L,\ell_S$ | long and short loan-to-value ratio |
 | $\mathrm{LT}$ | soft-liquidation LTV threshold |
@@ -127,7 +129,7 @@ $$
 
 A lower price makes long collateral worth less; a higher price makes short debt
 worth more. The route then repeats its health check from the actual post-swap
-collateral and current indexed debt.
+collateral and outstanding debt.
 
 For configured headroom $h_o\in(0,1)$,
 
@@ -144,8 +146,10 @@ satisfy:
 - a nonzero minimum debt amount; and
 - a position-size cap against robustly measured executable pool depth.
 
-The last condition is part of the target risk policy and must not be claimed as
-implemented until it is enforced in the contracts.
+The final condition is part of the target risk policy and must not be claimed as
+implemented until it is enforced in the contracts. The preceding debt minimum
+is also only nominal in the shipped defaults: `minBorrow` is zero, so the hard
+check rejects zero but accepts one raw token unit.
 
 ## 5. Liquidation boundaries
 
@@ -176,9 +180,9 @@ $$
 
 Long danger lies below spot and short danger above it. Start ticks are aligned
 toward earlier intervention. Both range ticks remain fixed in the compact demo.
-A separate force-close coverage check uses current collateral and indexed debt
-because interest and prior chunks change the economic coverage even though they
-do not move the stored range.
+A separate force-close coverage check uses current collateral and outstanding
+debt because price, charges, and prior chunks can change economic coverage even
+though they do not move the stored range. Time alone does not change v0 debt.
 
 For a configured coverage buffer $b$, define
 
@@ -310,6 +314,13 @@ The **prototype** kernel uses:
 | position refreshes per walk | 32 | bounds work at crowded ticks |
 | positions registered at one trigger | 32 | prevents a permanently stalled cursor |
 
+The last bound creates a finite admission resource. Because positions with the
+same collateral/debt ratio and LT align to the same tick, dust positions can
+fill all 32 slots and make the next opening revert. Meaningful decimal-aware
+minimums, opening authorization, and a non-exhaustible or paginated per-tick
+index are production requirements; the current cap is a gas-safety mechanism,
+not a Sybil-resistant quota.
+
 The order of operations is normative:
 
 1. `beforeSwap` records the pre-swap observation;
@@ -319,11 +330,13 @@ The order of operations is normative:
 5. actual deltas settle, charge is split, and debt is repaid; and
 6. trigger membership is refreshed after hook-generated price movement.
 
-`poke` invokes the same trigger and queue driver within a PoolManager unlock.
-Current indexed debt is instead used by the separate permissionless force-close
-coverage check; `poke` does not dynamically relocate stored trigger ticks.
+The vendored v4 `Hooks.sol` library skips `beforeSwap` and `afterSwap` when the
+hook itself initiated the swap, so a hook-generated liquidation swap does not
+recurse. `poke` invokes the same trigger and queue driver within a PoolManager
+unlock. The separate permissionless force-close path uses current position
+balances; `poke` does not dynamically relocate stored trigger ticks.
 
-## 9. Carry and vault parameters
+## 9. Zero-carry vault parameters
 
 For vault asset $a$, debt shares $s$, WAD scale $W=10^{18}$, and borrow index
 $I_a$ give
@@ -332,60 +345,55 @@ $$
 D=\frac{sI_a}{W}.
 $$
 
-The current implementation accrues linearly over each update interval:
+The v0 `PerpLendingVaultFactory` configures
 
 $$
-I_a' = I_a\left(1+r_a(u_a)\frac{\Delta t}{365\text{ days}}\right).
+r_a(u)=0,\qquad
+I_a(t)=W,\qquad
+D(t)=s.
 $$
 
-For lender-owned cash $L_a$ excluding reserves and total debt $D_a$,
+It passes zero for the base rate, both rate slopes, reserve factor, and rate
+ceiling. Debt is therefore time-invariant between repayment and write-off. No
+borrow interest, lender yield, or interest-funded reserve accrues.
+
+For vault cash $L_a$ and performing debt $D_a$, utilization remains
 
 $$
 u_a=\frac{D_a}{L_a+D_a}.
 $$
 
-The **prototype** vault factory uses the kinked annual rate
+The kink field remains 80% for constructor compatibility but is economically
+inert when all rate coefficients are zero. The hard 90% post-borrow utilization
+cap still limits new debt and preserves some cash; redemption remains limited by
+cash actually present.
 
-$$
-r(u)=
-\begin{cases}
-0.04\,u/0.80, & u\le0.80,\\[4pt]
-0.04+1.00\,(u-0.80)/0.20, & u>0.80,
-\end{cases}
-$$
-
-subject to a 400% absolute ceiling. The rate at the 90% new-borrow cap is
-approximately 54% APR. Later interest accrual or cash redemptions can raise
-utilization further; the default curve reaches 104% APR at 100% utilization.
-Ten percent of accrued interest is assigned to protocol reserves; the remainder
-increases lender share value.
-
-Longs pay this curve in USDC. Shorts pay the independent WETH curve. There is no
-requirement that the two interest flows net to zero.
+Zero carry is a mechanism-isolation subsidy, not sustainable production
+economics. Before enabling a nonzero borrow curve, the protocol must atomically
+deregister and re-register triggers from current debt, define how already-crossed
+boundaries enter processing, and preserve bounded work. Merely changing the
+factory's rate arguments would make the fixed trigger geometry stale.
 
 ### 9.1 Vault share and write-off accounting
 
-Lender-owned vault assets are
+Vault share assets are
 
 $$
-A_{LP}=\text{cash excluding reserves}+\text{performing debt}.
+A_V=\text{cash}+\text{performing debt}.
 $$
 
-A redemption can transfer no more than available cash; outstanding loans are not
-liquid. If protocol reserves $R_v$ are fully backed by token cash when
-unrecoverable debt $S$ is written off, lender assets change by
+A redemption can transfer no more than available cash; outstanding loans are
+not liquid. The inherited vault has a reserve-first write-off branch, but the v0
+factory neither seeds reserves nor permits interest-driven reserve growth.
+Accordingly, for unrecoverable debt $S$ in the v0 deployment,
 
 $$
-A_{LP}'=A_{LP}-\max(S-R_v,0).
+A_V'=A_V-S.
 $$
 
-This is the intended reserve-first waterfall, not an unconditional identity for
-the current prototype. Reserves accrue as bookkeeping before borrowers pay the
-interest and can exceed the vault's token balance. In that state, reducing the
-reserve counter during write-off need not release cash one-for-one, so actual
-lender loss must be measured from `totalAssets()` before and after the write-off.
-The shortfall nevertheless remains isolated to the asset vault that originated
-the debt.
+The loss falls on the protocol-seeded share capital and remains isolated to the
+asset vault that originated the debt. The demo does not promise yield to
+compensate that capital; this is an explicit scope limitation.
 
 ## 10. Prototype liquidation configuration
 
@@ -398,6 +406,9 @@ for reproducibility, not endorsements:
 | minimum admission gap | 100 ticks | about 1% from post-route spot |
 | default maximum selectable LT | 99% | initialization default, not demo recommendation |
 | hard configurable LT upper bound | 99.5% | enforced by `setConfig` |
+| borrow rate at every utilization | 0% | fixed by `PerpLendingVaultFactory` |
+| interest reserve factor | 0% | no reserve accrual in v0 |
+| hard new-borrow utilization cap | 90% | remains active despite zero rate |
 | base liquidation charge | 50 bps | scaled by LT and time in liquidation |
 | coverage/slippage buffer | 200 bps | capped by half the position's LT gap |
 | max chunk/proxy fraction $\eta$ | 1% | absolute input bound against rough range-depth proxy |
@@ -407,6 +418,11 @@ for reproducibility, not endorsements:
 | `poke`/force-close caller reward | 10 bps of output | carved from the liquidation charge |
 | force-close tick limit | 1,000 ticks | roughly 10% adverse price movement |
 | perpetual horizon sentinel | `uint32.max` seconds | no practical scheduled expiry; finite encoding |
+
+The observation ring also stores 32-bit timestamps. It wraps in 2106, earlier
+than a position opened today reaches the term sentinel, so a long-lived
+deployment would need a clock migration. The horizon signals product semantics;
+it is not a promise that this prototype operates unchanged for 136 years.
 
 The liquidation charge itself is capped relative to the LT gap by the inherited
 kernel. Parameter validation must prevent zero chunk count, zero interval, zero
@@ -472,7 +488,7 @@ definition.
 
 ## 12. Illustrative long liquidation
 
-Continue the long example at $P=2{,}150$. Before further interest,
+Continue the long example at $P=2{,}150$. With zero carry and before a chunk,
 
 $$
 Q_L=2{,}150(5)-10{,}000=750,
@@ -512,7 +528,7 @@ Force-close eligibility is the union of:
 
 1. pool tick past the configured far boundary;
 2. conservative coverage breach
-   $V_D(1-b_{eff})<D$ after current interest accrual; and
+   $V_D(1-b_{eff})<D$ from the live price and remaining balances; and
 3. the prototype's finite horizon sentinel being reached.
 
 The third condition is an implementation artifact used to reuse a compact
@@ -532,16 +548,18 @@ $$
 \text{surplus to trader}.
 $$
 
-If collateral becomes zero before debt does, remaining debt is written off to
-vault reserves and then lenders. Because reward and donation precede repayment
-in the current kernel, their caps are part of lender-solvency calibration.
+If collateral becomes zero before debt does, the inherited write-off checks
+reserves first. In v0 that balance does not grow, so the remaining loss reduces
+the protocol-seeded vault capital. Because reward and donation precede
+repayment, their caps are part of vault-solvency calibration.
 
 ## 14. Recommended demo profile
 
 For an understandable demonstration, use:
 
 - one curated WETH/USDC pool with visible, persistent wide-range liquidity;
-- both debt vaults prefunded well below their 90% utilization cap;
+- both debt vaults prefunded by the protocol and kept well below their 90%
+  utilization cap;
 - a 90% soft LT with opening LTV near 80%, rather than the 99% default maximum;
 - explicit display of long and short directional leverage;
 - 60-second base chunk cadence, 100 target chunks, and a 1% depth cap;
@@ -551,7 +569,7 @@ For an understandable demonstration, use:
   force-close.
 
 This profile is illustrative. It must be changed if measured pool depth, gas
-cost, volatility, or interest utilization makes the chosen values unsafe.
+cost, volatility, or vault utilization makes the chosen values unsafe.
 
 ## 15. Acceptance and calibration plan
 
@@ -564,14 +582,14 @@ Tests must establish:
 3. Pool input consumed equals collateral reduction; unfilled input remains.
 4. Output equals repayment plus donation, reward, and trader surplus.
 5. Long chunks repay only USDC debt and short chunks repay only WETH debt.
-6. Interest never creates debt assets without the corresponding index/share
-   liability.
-7. A write-off reduces only the originating vault after reserves.
+6. Long time warps without repayment or write-off leave debt and trigger ticks
+   unchanged.
+7. A write-off reduces only the originating protocol-seeded vault.
 
 ### 15.2 State-machine cases
 
 Exercise ordinary callback activation, bounded work, cursor resume, price-
-recovery pause, re-entry, interest-only force-close eligibility, per-chunk
+recovery pause, re-entry, debt constancy across time, per-chunk
 `poke`/callback parity despite different work and reward budgets, zero
 range-depth proxy, far-boundary force-close, price-limited partial fill, retry,
 collateral exhaustion, and lender loss.
@@ -580,7 +598,7 @@ collateral exhaustion, and lender loss.
 
 Vary token order, 6/18 decimal pairs, one-block and multi-block price pushes,
 liquidity removal, exact trigger congestion, swap ordering around pokes,
-utilization shocks, and adverse base/quote interest paths.
+utilization shocks, and long time warps.
 
 ### 15.4 Empirical selection
 
@@ -592,7 +610,12 @@ For each candidate pool and parameter set, report:
 - execution drag and LP donation;
 - poke reward relative to transaction cost;
 - frequency of force-close and partial retries; and
-- reserve use and lender loss under gap scenarios.
+- protocol-seeded vault loss under gap scenarios.
 
 No LT, range width, or leverage tier is production-ready until those results are
 evaluated out of sample.
+
+The current verification baseline is 16 passing root TruePerp tests and 94
+passing inherited TrueLend tests, with no failures. The inherited suite validates
+the reused kernel generally; the root suite validates the v0 composition,
+including constant debt under time warp.

@@ -28,8 +28,8 @@ isolated, physically executed margin product with no expiry. Lending vaults are
 necessary credit infrastructure; the hook's integration of risk detection,
 execution, and repayment with the AMM is the research contribution. The design
 does not eliminate price manipulation, execution loss, liquidity gaps, or bad
-debt, and the checked-in repository remains an unaudited prototype under
-architectural migration.
+debt. The checked-in implementation remains an unaudited research prototype,
+not a production deployment.
 
 ## 1. Instrument definition
 
@@ -213,7 +213,7 @@ long-short funding transfer, anchors that pool.
 Zero carry is a deliberate v0 scope choice. The registered liquidation range is
 computed once from opening debt. Keeping debt constant means elapsed time cannot
 make that range stale before any price tick is crossed. A production design may
-charge asset-specific borrow interest, but it must first add dynamic,
+charge asset-specific borrow interest, but it must first add atomic, dynamic,
 debt-aware trigger re-registration and test its liveness and gas bounds. That
 extension is future work, not a current protocol claim.
 
@@ -355,9 +355,11 @@ The hook uses the v4 lifecycle as follows:
 3. `afterSwap` walks only crossed registered boundaries, refreshes affected
    positions, and processes at most a configured number of due chunks.
 4. A chunk calls the PoolManager's swap function directly in the already-open
-   accounting context. The local v4 `Hooks.sol` implementation skips
-   `beforeSwap` and `afterSwap` when the hook itself initiated the swap, so the
-   liquidation swap does not recursively invoke these callbacks.
+   accounting context. The vendored v4-core
+   `lib/truelend/lib/v4-periphery/lib/v4-core/src/libraries/Hooks.sol`
+   implementation skips `beforeSwap` and `afterSwap` when the hook itself
+   initiated the swap, so the liquidation swap does not recursively invoke
+   these callbacks.
 5. The hook settles its input, takes the output, donates the declared penalty,
    and repays the correct lending vault.
 
@@ -396,7 +398,9 @@ makes the position eligible. Anyone may then call `forceClose(position)`. The
 product has no scheduled maturity; the inherited
 compact position layout represents that policy with a maximum 32-bit horizon
 (about 136 years), which is a finite implementation sentinel rather than a
-practical trading expiry.
+practical trading expiry. Its observation timestamps use a separate 32-bit
+clock that wraps in 2106, so the implementation would require migration long
+before the nominal position horizon.
 
 The backstop attempts to convert remaining collateral into the debt asset, but
 uses a hard sqrt-price limit. If the limit or the edge of available liquidity is
@@ -416,8 +420,8 @@ debt. The v0 loss waterfall is:
 3. the protocol-seeded lending-vault share capital.
 
 Uniswap LPs experience only the inventory and price effects of swaps they
-actually execute. They do not absorb an off-ledger shortfall. Lenders absorb the
-credit tail for the asset they explicitly supplied.
+actually execute. They do not absorb an off-ledger shortfall. The corresponding
+protocol-seeded debt vault absorbs the credit tail.
 
 ## 8. Economic interpretation
 
@@ -427,7 +431,7 @@ credit tail for the asset they explicitly supplied.
 | Long profit source | losing traders, market maker, or insurance fund | appreciated base inventory |
 | Short profit source | losing traders, market maker, or insurance fund | retained quote after repurchasing base debt |
 | Carry | usually long-short funding | zero in v0; no synthetic funding ledger |
-| Expiry | none | none |
+| Expiry | none | no practical scheduled expiry; finite v0 sentinels |
 | Entry and exit | book, AMM, or oracle accounting | actual swaps in the designated AMM |
 | Liquidation | position transfer or event close | paced collateral-to-debt swaps |
 | Primary tail bearer | venue-specific backstop | protocol-seeded debt-vault capital after collateral |
@@ -458,12 +462,32 @@ against bounded flow, but it does not prove manipulation unprofitable. Sustained
 control, thin liquidity, adverse ordering, and multi-block attacks remain
 empirical security questions.
 
-Liquidation swaps can move the same price that triggered them. Pacing and depth
-caps reduce this feedback; they do not eliminate it. A market gap can cross the
-entire soft range before any callback runs. An empty pool can halt both gradual
-and terminal execution. These cases must be surfaced as explicit liveness and
+Liquidation swaps can move the same price that triggered them. Pacing and
+input-size caps reduce this feedback; they do not eliminate it. A market gap can
+cross the entire soft range before any callback runs. An empty pool can halt
+both gradual and terminal execution. These cases must be surfaced as explicit liveness and
 bad-debt risks. Nonzero interest would add a no-tick risk path and is excluded
 until dynamic trigger maintenance exists.
+
+The compiled hook is only 33 bytes below the EIP-170 runtime limit under the
+checked-in toolchain. This makes bytecode size an explicit engineering
+constraint: new product behavior belongs in periphery contracts until the
+inherited kernel is decomposed.
+
+The canonical router is not yet an authorization boundary: the inherited
+public opening function can bypass market activation, quote-margin routing, and
+router execution guards. Trigger buckets are capped at 32 positions and the
+default debt minimum is only one raw token unit, so dust positions can crowd a
+common boundary. Admission also has no size cap tied to executable liquidation
+capacity. Finally, the chunk-size proxy extrapolates current active liquidity
+across the whole range while ordinary chunks have no local price limit. Narrow
+or just-in-time liquidity can therefore overstate useful depth. These issues
+must be resolved before permissionless deployment.
+
+Liquidation donations are distributed after execution to liquidity active at
+the final tick. They are not guaranteed to follow the exact set of LPs, or the
+same proportions, that filled the entire chunk; just-in-time donation capture
+is an open incentive-design question.
 
 ## 10. Evaluation plan
 
@@ -496,7 +520,7 @@ chunk, price impact, recovery retention, poke profitability, and bad-debt rate.
 
 This paper specifies the approved physical architecture. Earlier prototype
 revisions used a different synthetic accounting model; those mechanics are not
-part of this design. The current verification run passes 14 TruePerp root tests
+part of this design. The current verification run passes 16 TruePerp root tests
 and 94 inherited TrueLend tests with no failures. This is implementation
 evidence, not an external audit or proof that the parameters are safe.
 
@@ -510,8 +534,8 @@ uncapped marked profit.
 
 The research contribution is the execution lifecycle: ordinary Uniswap swaps
 detect risk and advance bounded collateral conversions; each conversion repays
-real debt and rewards the pool liquidity that absorbs it; recovery pauses the
-remaining process; `poke` restores liveness in quiet periods; and a
+real debt and donates to pool liquidity active after execution; recovery pauses
+the remaining process; `poke` restores liveness in quiet periods; and a
 slippage-bounded force-close declares the terminal credit outcome. Lending
 vaults make the leverage possible, but the hook-mediated union of price,
 execution, and gradual liquidation is what distinguishes TruePerp.

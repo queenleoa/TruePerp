@@ -19,14 +19,14 @@ inventory. The residual solvency problem is collateralized-credit risk.
 The research contribution is the v4-hook execution loop. Ordinary swaps record
 pool-local observations and cross indexed risk boundaries. The hook then
 converts a bounded amount of an unsafe position's collateral into its debt asset
-through the same pool, donates a declared charge to the LPs that absorb the
-trade, and repays the lending vault. Processing pauses when price recovers
+through the same pool, donates a declared charge to liquidity active after the
+chunk, and repays the lending vault. Processing pauses when price recovers
 through the stored safe-side boundary, resumes on renewed deterioration,
 remains callable through a permissionless `poke`, and ends in a
 slippage-bounded force-close if gradual treatment fails.
 
-> **Status.** This note specifies the approved architecture. TruePerp remains an
-> unaudited research prototype under implementation migration.
+> **Status.** This note describes the implemented v0 architecture. TruePerp
+> remains an unaudited research prototype, not a production deployment.
 
 ## 1. Research question
 
@@ -132,7 +132,7 @@ price move and passive AMM inventory runs against it.
 An oracle-free range order therefore cannot simply make the position “liquidate
 itself.” Active execution is necessary. TruePerp's proposal is to make that
 execution native to the pool hook, with requested input kept small relative to
-a conservative liquidity proxy and paced over time rather than delegated as a
+a coarse liquidity proxy and paced over time rather than delegated as a
 one-shot discounted transfer.
 
 ## 5. Price roles
@@ -271,7 +271,9 @@ is intentionally deferred.
 
 The prototype encodes “no scheduled expiry” as the maximum 32-bit term,
 approximately 136 years. Reaching it is an actual force-close reason, but it is
-a finite implementation sentinel rather than a practical product maturity.
+a finite implementation sentinel rather than a practical product maturity. The
+pool observation clock separately uses 32-bit timestamps and must be migrated
+before its 2106 wrap.
 
 ## 9. Force-close and bad debt
 
@@ -350,6 +352,29 @@ demo treats the vaults as protocol-seeded support capital, not as yield-bearing
 products, and there is no marked trader-PnL transfer for a temporary depositor
 to capture.
 
+### 11.6 Prototype access and trigger capacity
+
+The canonical router is a product convention rather than an enforced boundary.
+The inherited public `open` function can bypass market activation,
+quote-denominated margin construction, deadlines, and router slippage policy.
+In addition, only 32 positions may share an aligned trigger tick, while the
+default minimum borrow is effectively one raw token unit. An attacker can scale
+a common collateral/debt ratio down to dust and occupy a popular trigger bucket,
+denying later openings at that boundary. Production work requires an authorized
+opening surface, economically normalized minimum sizes, and a trigger design
+that cannot be exhausted cheaply.
+
+### 11.7 Liquidity proxy and donation timing
+
+The chunk cap extrapolates current active liquidity over the whole liquidation
+range and ordinary chunks have no local sqrt-price limit. Narrow or
+just-in-time liquidity can therefore inflate the proxy before execution, while
+liquidity may be sparse beyond the current tick. The donation is also allocated
+after the swap to liquidity active at the final tick; it is not a receipt-based
+rebate to every LP that filled the route and can itself attract just-in-time
+liquidity. A production design should combine an executable-depth walk or local
+price bound with explicit analysis of donation capture.
+
 ## 12. Experimental program
 
 The central hypotheses are:
@@ -394,7 +419,7 @@ The appropriate claim is not “a conventional perp without an oracle.” It is:
 > an AMM-native, expiry-free margin protocol in which ordinary pool activity
 > advances gradual liquidation of real spot inventory against real debt.
 
-The current repository verification passes all 14 root TruePerp tests and all
+The current repository verification passes all 16 root TruePerp tests and all
 94 inherited TrueLend tests. These results validate the tested implementation
 paths, not production safety or economic calibration.
 
