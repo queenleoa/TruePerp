@@ -1,6 +1,8 @@
 export type Direction = "long" | "short";
 
-export const ENTRY_PRICE = 3_842.6;
+// The demo pool is initialized at 2,000 TrueUSDC per TrueETH. This is a
+// presentation convention for unbacked test tokens, not an ETH/USD oracle.
+export const ENTRY_PRICE = 2_000;
 export const LIQUIDATION_THRESHOLD = 0.95;
 export const POOL_FEE_RATE = 0.003;
 export const MAX_LONG_LEVERAGE = 10;
@@ -130,19 +132,12 @@ export function previewPosition(
   };
 }
 
-export const formatUsd = (value: number, maximumFractionDigits = 2) => {
-  const digits = Math.max(0, Math.min(20, Math.trunc(maximumFractionDigits)));
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: Math.min(2, digits),
-    maximumFractionDigits: digits,
-  }).format(Number.isFinite(value) ? value : 0);
-};
-
 export const formatNumber = (value: number, maximumFractionDigits = 4) => {
   const digits = Math.max(0, Math.min(20, Math.trunc(maximumFractionDigits)));
   return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: digits,
   }).format(Number.isFinite(value) ? value : 0);
 };
+
+export const formatQuote = (value: number, maximumFractionDigits = 2) =>
+  `${formatNumber(value, maximumFractionDigits)} tUSDC`;

@@ -18,9 +18,10 @@ export const deployment = {
   router: import.meta.env.VITE_TRUEPERP_ROUTER || "",
   hook: import.meta.env.VITE_TRUEPERP_HOOK || "",
   poolManager: import.meta.env.VITE_POOL_MANAGER || "",
+  positionManager: import.meta.env.VITE_POSITION_MANAGER || "",
   poolId: import.meta.env.VITE_POOL_ID || "",
-  weth: import.meta.env.VITE_WETH_ADDRESS || "",
-  usdc: import.meta.env.VITE_USDC_ADDRESS || "",
+  baseToken: import.meta.env.VITE_BASE_TOKEN_ADDRESS || "",
+  quoteToken: import.meta.env.VITE_QUOTE_TOKEN_ADDRESS || "",
   transaction: import.meta.env.VITE_DEPLOYMENT_TX || "",
 };
 
@@ -31,8 +32,9 @@ export const hasAddressConfiguration =
   isAddress(deployment.router) &&
   isAddress(deployment.hook) &&
   isAddress(deployment.poolManager) &&
-  isAddress(deployment.weth) &&
-  isAddress(deployment.usdc) &&
+  isAddress(deployment.positionManager) &&
+  isAddress(deployment.baseToken) &&
+  isAddress(deployment.quoteToken) &&
   bytes32Pattern.test(deployment.poolId);
 
 export const hasDeploymentTransaction = bytes32Pattern.test(deployment.transaction);

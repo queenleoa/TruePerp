@@ -84,11 +84,11 @@ function App() {
       <div className={`environment-banner ${hasAddressConfiguration ? "configured" : "demo"}`}>
         <div>
           {hasAddressConfiguration ? <CheckCircle2 size={14} /> : <FlaskConical size={14} />}
-          <strong>{hasAddressConfiguration ? "Addresses supplied" : "Interactive demo"}</strong>
+          <strong>{hasAddressConfiguration ? "Config supplied" : "Interactive demo"}</strong>
           <span>
             {hasAddressConfiguration
-              ? `Router ${formatAddress(deployment.router)} · not verified on-chain · preview only`
-              : "Illustrative prices and balances · no TruePerp market configured · no transactions sent"}
+              ? `TrueETH / TrueUSDC addresses supplied · Router ${formatAddress(deployment.router)} · preview only`
+              : "Unbacked TrueETH / TrueUSDC demo assets · illustrative balances · no transactions sent"}
           </span>
         </div>
         {hasAddressConfiguration && (
@@ -110,9 +110,9 @@ function App() {
       <main className="trade-layout" id="top">
         <section className="trading-workspace" id="trade">
           <div className="market-kicker">
-            <span>ETH perpetual</span>
+            <span>TrueETH perpetual demo</span>
             <strong>Up to 10×</strong>
-            <small>physical collateral · no expiry · zero demo carry</small>
+            <small>mock base/quote inventory · no expiry · zero demo carry</small>
           </div>
           <div className="trading-grid">
             <PriceChart />
@@ -140,7 +140,7 @@ function App() {
       <footer className="site-footer">
         <div>
           <span>TRUEPERP / HACKATHON PROTOTYPE</span>
-          <small>Not audited · not financial advice · demo values only</small>
+          <small>Not audited · unbacked test assets · demo values only</small>
         </div>
         <nav aria-label="Project links">
           <a href="https://github.com/queenleoa/TruePerp#readme" target="_blank" rel="noreferrer">

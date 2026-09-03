@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "network": {
+    "name": "Unichain Sepolia",
+    "chainId": 1301,
+    "rpc": "https://sepolia.unichain.org"
+  },
+  "deployedAt": "2026-09-03T11:40:44Z",
+  "blockRange": {
+    "from": 61583110,
+    "to": 61584992
+  },
+  "deployer": "0x476BD498e0CdC6F615253FF06c18461819641088",
+  "infrastructure": {
+    "poolManager": "0x00B036B58a818B1BC34d502D3fE730Db729e62AC",
+    "positionManager": "0xf969Aee60879C54bAAed9F3eD26147Db216Fd664",
+    "stateView": "0xc199F1072a74D4e905ABa1A84d9a45E2546B6222",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "poolSwapTest": "0x9140a78c1A137c7fF1c151EC8231272aF78a99A4",
+    "canonicalWeth": "0x4200000000000000000000000000000000000006",
+    "create2Deployer": "0x4e59b44847b379578588920cA78FbF26c0B4956C"
+  },
+  "contracts": {
+    "trueEth": "0x88b49b8292a9e3174d77c5824dc96E177A56365D",
+    "trueUsdc": "0x1949280616D7Aad370C4fF0BcC2C5a351B90D9e0",
+    "perpLendingVaultFactory": "0x311DC01823835B4D442f4A78cB9E4bDd07Af8b03",
+    "truePerpHook": "0x71280741519FCfc4c17b3cBdAF6e589E84Ba90c0",
+    "truePerpRouter": "0xCE9376A2525CFFDbb1E5f1Fb01e2b04895C1A064",
+    "baseVault": "0x2aC5081BEE73d6d8F49d5238E593af65a6FaE8E9",
+    "quoteVault": "0x133A4EAbA992695614bE5545126d67244C51851D"
+  },
+  "linkedLibraries": {
+    "chunkMath": "0xEb40c83fd4625060d1BaD59079ce4eb1E8948D5C",
+    "truncatedOracle": "0x275e4822eBf932533Ce9ca732A6821E5100239FF",
+    "triggerIndex": "0x166428aD09BCDb847096b3F681627d53a270b3F0",
+    "liqRangeMath": "0x4463F1578e53151A59D5e7Fd2Da3354Dd8a87767"
+  },
+  "tokens": {
+    "trueEth": {
+      "name": "TrueETH (Demo)",
+      "symbol": "tETH",
+      "decimals": 18,
+      "treasurySupply": "10000000000000000000000",
+      "maxSupply": "20000000000000000000000",
+      "faucetAmount": "5000000000000000000"
+    },
+    "trueUsdc": {
+      "name": "TrueUSDC (Demo)",
+      "symbol": "tUSDC",
+      "decimals": 6,
+      "treasurySupply": "20000000000000",
+      "maxSupply": "40000000000000",
+      "faucetAmount": "10000000000"
+    },
+    "notice": "Both tokens are capped, unbacked test assets with one faucet claim per wallet and no post-construction admin mint path."
+  },
+  "market": {
+    "poolId": "0xb456c2c3c600c7530c3a3b0d238198a466be1943ae5b5e3fd5cbfb831699e3d9",
+    "currency0": "0x1949280616D7Aad370C4fF0BcC2C5a351B90D9e0",
+    "currency1": "0x88b49b8292a9e3174d77c5824dc96E177A56365D",
+    "base": "0x88b49b8292a9e3174d77c5824dc96E177A56365D",
+    "quote": "0x1949280616D7Aad370C4fF0BcC2C5a351B90D9e0",
+    "baseIsCurrency0": false,
+    "fee": 3000,
+    "tickSpacing": 60,
+    "initialHumanPrice": "2000 tUSDC per tETH",
+    "initialSqrtPriceX96": "1771595571142957102961017161607260",
+    "maxLiquidationThresholdBps": 9500,
+    "perpetualHorizonSeconds": 4294967295
+  },
+  "capital": {
+    "uniswapPosition": {
+      "tokenId": 7913,
+      "owner": "0x476BD498e0CdC6F615253FF06c18461819641088",
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "liquidity": "44676638190445798",
+      "trueEthDeposited": "998999999999999996998",
+      "trueUsdcDeposited": "1998000000000"
+    },
+    "baseDebtVault": {
+      "asset": "tETH",
+      "cash": "1000000000000000000000"
+    },
+    "quoteDebtVault": {
+      "asset": "tUSDC",
+      "cash": "2000000000000"
+    }
+  },
+  "oracle": {
+    "requiredObservations": 9,
+    "observationsAtDeployment": 1,
+    "observationsAfterWarmup": 9,
+    "warmupStatus": "ready",
+    "warmedAt": "2026-09-03T12:10:20Z",
+    "warmupFinalBlock": 61584992,
+    "sqrtPriceX96AfterWarmup": "1771581426865218687561323016668830",
+    "tickAfterWarmup": 200311,
+    "warmupSwapTransactions": [
+      "0xfe2afbc3b1a9c5549ecc648be955bd1664c788e8a9bf15980472cf19bc0edbb6",
+      "0xd4f9c0e2e1dbcf103b7d4cc8e4c7645662a0b544b1a02f42b326ed974fb9a66c",
+      "0x5685eac1c82443dd3882a9576e504870bd94bacd0a4be460d0efcce7dcbda814",
+      "0x6acae3617e372fc513a712d43042af3a5edba3f5a10f1aec080bf77aecebe689",
+      "0xd3674b81adebd5d7c31b8259a168bd543530ef07edfc1e6567c9590594aebcb4",
+      "0x8bb87418785fe6f20fca242f5fcfdea5bcdcac20ad4818ebbd2903833b5d3beb",
+      "0xc9ca24e46f0949644b6e2151c4f0aa89972dc5ff256e45c9a92d4adb22246c73",
+      "0xa53fcdcf44d3b82510609224ca3aa29bf8afbe53a282e18c521ae28ef1673310"
+    ]
+  },
+  "transactions": {
+    "trueEthDeployment": "0x5c55e2a5e039a527794b399b8f55682474ac25f28e67b433bb290afc4a16a577",
+    "trueUsdcDeployment": "0x622caa096fe1f9714dd2403e7b26ead6e077e030b0a6c84226ca3afea3ab8bb3",
+    "factoryDeployment": "0xe4336c4e281afe858f32a3277807d14ac01f944b81bd1c1b05073909024714de",
+    "hookDeployment": "0x5919aded6e37bcb6040f46288e07841a16f6e694971cdefe70e9d03f21708957",
+    "routerDeployment": "0x24d98c5dc9d4f4a9c33a170be2d2178975be7cdfbed0fcc7bd4557b8c10f6236",
+    "poolInitialization": "0xad5586b31316d2714a9c35fe6e613ba9a06ae848526377951b29fc8ff6902f2a",
+    "perpetualConfiguration": "0x05ee714b2e49cb51eabc2bc6b11f013b92644fe91e1dd92d1227eec952e5862a",
+    "riskConfiguration": "0xc8750718fd7d83dd5edc07612b504d7883c60f3f9387e0e1561939817cbac2e4",
+    "marketActivation": "0x8617a71214a99d2f30ac2640c08b40328c9223e110e4c420e1e9c8cc6d253ab7",
+    "positionMint": "0x43f9c9a963a0f764c64ba6ae5c8e8bcfbb461a77c768679f11902ce964d3aa1f",
+    "baseVaultDeposit": "0x1d369d0078be2c4515c108c7ca9f51d986ade92d19c531bc2bda1f5d5149b7a0",
+    "quoteVaultDeposit": "0x5fbac71c0320e4deb79892ee75ae777879a937304db2e0914464811b4fef2fce"
+  }
+}

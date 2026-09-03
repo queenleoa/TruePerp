@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { ArrowRight, Check, X } from "lucide-react";
-import { Direction, formatNumber, formatUsd, PositionPreview } from "../lib/leverage";
+import { Direction, formatNumber, formatQuote, PositionPreview } from "../lib/leverage";
 
 interface PreviewDialogProps {
   open: boolean;
@@ -76,7 +76,7 @@ export function PreviewDialog({ open, onClose, direction, preview }: PreviewDial
           <X size={18} />
         </button>
         <span className="eyebrow">Transaction preview</span>
-        <h2 id="preview-title">Your {preview.leverage.toFixed(1)}× ETH {direction}</h2>
+        <h2 id="preview-title">Your {preview.leverage.toFixed(1)}× TrueETH {direction}</h2>
         <p id="preview-description">
           One transaction would transform your margin into the following physical
           position. Nothing has been submitted.
@@ -85,20 +85,20 @@ export function PreviewDialog({ open, onClose, direction, preview }: PreviewDial
         <div className={`preview-route ${direction}`}>
           <div>
             <small>Margin</small>
-            <strong>{formatUsd(preview.margin, 0)} USDC</strong>
+            <strong>{formatQuote(preview.margin, 0)}</strong>
           </div>
           <ArrowRight size={20} />
           <div>
             <small>Atomic swap + borrow</small>
-            <strong>{long ? "buy WETH" : "sell WETH"}</strong>
+            <strong>{long ? "buy TrueETH" : "sell TrueETH"}</strong>
           </div>
           <ArrowRight size={20} />
           <div>
             <small>Position</small>
             <strong>
               {long
-                ? `${formatNumber(preview.baseExposure, 3)} WETH`
-                : `${formatUsd(preview.collateralValue, 0)} USDC`}
+                ? `${formatNumber(preview.baseExposure, 3)} TrueETH`
+                : formatQuote(preview.collateralValue, 0)}
             </strong>
           </div>
         </div>

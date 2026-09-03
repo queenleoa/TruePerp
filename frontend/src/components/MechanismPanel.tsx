@@ -14,7 +14,7 @@ import {
 import {
   Direction,
   formatNumber,
-  formatUsd,
+  formatQuote,
   PositionPreview,
 } from "../lib/leverage";
 
@@ -89,8 +89,8 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
           <div className="sketch-node trader-node">
             <WalletCards size={18} />
             <small>you bring</small>
-            <strong>{formatUsd(preview.margin, 0)}</strong>
-            <span>USDC margin</span>
+            <strong>{formatQuote(preview.margin, 0)}</strong>
+            <span>TrueUSDC margin</span>
           </div>
 
           <div className="sketch-node vault-node">
@@ -98,10 +98,10 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
             <small>TrueLend vault lends</small>
             <strong>
               {long
-                ? formatUsd(preview.borrowValue, 0)
-                : `${formatNumber(preview.debtBase, 3)} WETH`}
+                ? formatQuote(preview.borrowValue, 0)
+                : `${formatNumber(preview.debtBase, 3)} TrueETH`}
             </strong>
-            <span>{long ? "USDC debt" : `${formatUsd(preview.borrowValue, 0)} of ETH`}</span>
+            <span>{long ? "TrueUSDC debt" : `≈ ${formatQuote(preview.borrowValue, 0)}`}</span>
           </div>
 
           <div className="sketch-node router-node">
@@ -116,8 +116,8 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
           <div className="sketch-node pool-node">
             <Repeat2 size={18} />
             <small>Uniswap v4 swaps</small>
-            <strong>{long ? "USDC → WETH" : "WETH → USDC"}</strong>
-            <span>the same ETH / USDC pool</span>
+            <strong>{long ? "TrueUSDC → TrueETH" : "TrueETH → TrueUSDC"}</strong>
+            <span>the same TrueETH / TrueUSDC pool</span>
           </div>
 
           <div className="down-arrow" aria-hidden="true"><ArrowDown size={22} /></div>
@@ -129,20 +129,20 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
               <span>OWNS</span>
               <strong>
                 {long
-                  ? `${formatNumber(preview.baseExposure, 3)} WETH`
-                  : formatUsd(preview.collateralValue, 0)}
+                  ? `${formatNumber(preview.baseExposure, 3)} TrueETH`
+                  : formatQuote(preview.collateralValue, 0)}
               </strong>
             </div>
             <div className="balance-line owes">
               <span>OWES</span>
               <strong>
                 {long
-                  ? formatUsd(preview.borrowValue, 0)
-                  : `${formatNumber(preview.debtBase, 3)} WETH`}
+                  ? formatQuote(preview.borrowValue, 0)
+                  : `${formatNumber(preview.debtBase, 3)} TrueETH`}
               </strong>
             </div>
             <div className="paper-equity">
-              estimated equity {formatUsd(preview.equityValue, 0)} at entry*
+              estimated equity {formatQuote(preview.equityValue, 0)} at entry*
             </div>
           </div>
           <div className="hand-note note-result">
@@ -153,7 +153,7 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
         <div className={`liquidation-canvas ${direction}`}>
           <div className="risk-scale">
             <div className="risk-price">
-              <small>ETH moves against your {direction}</small>
+              <small>TrueETH price moves against your {direction}</small>
               <strong>{long ? "price ↓" : "price ↑"}</strong>
             </div>
             <div className="risk-track">
@@ -166,7 +166,7 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
             </div>
             <div className="risk-readout">
               <span>opens at {(preview.openingLtv * 100).toFixed(2)}% LTV</span>
-              <strong>starts near {formatUsd(preview.liquidationPrice, 0)}</strong>
+              <strong>starts near {formatQuote(preview.liquidationPrice, 0)}</strong>
             </div>
           </div>
 
@@ -183,7 +183,7 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
               <span>02</span>
               <strong>One small chunk</strong>
               <small>
-                {long ? "WETH collateral is sold" : "USDC collateral buys WETH"}
+                {long ? "TrueETH collateral is sold" : "TrueUSDC buys TrueETH"}
               </small>
             </div>
             <FlowArrow label="proceeds" />

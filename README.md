@@ -1,29 +1,42 @@
 # TruePerp
 
-**Up to 10x expiry-free ETH leverage with keeperless, gradual liquidation on
-Uniswap v4.**
+**Up to 10x expiry-free base-asset leverage with keeperless, gradual
+liquidation on Uniswap v4.**
 
 ![TruePerp physical market architecture](docs/assets/trueperp-architecture.svg)
 
-TruePerp represents leverage with real assets and real debt. A position is not
-an unbacked cash promise against a house vault:
+TruePerp represents leverage with held inventory and real token debt. A
+position is not a cash-settled promise against a house vault:
 
-- an ETH long holds WETH and owes USDC;
-- an ETH short holds USDC and owes WETH; and
+- a base-asset long holds TrueETH and owes TrueUSDC;
+- a base-asset short holds TrueUSDC and owes TrueETH; and
 - when either position becomes unsafe, the hook converts its collateral into
-  its debt asset through the ETH/USDC pool in small, paced swaps.
+  its debt asset through the TrueETH/TrueUSDC pool in small, paced swaps.
 
-The demo accepts USDC margin for either direction. A long swaps that margin and
-its borrowed USDC into WETH; a short adds the USDC received from selling
-borrowed WETH to its margin.
+The demo accepts TrueUSDC margin for either direction. A long swaps that margin
+and its borrowed TrueUSDC into TrueETH; a short adds the TrueUSDC received from
+selling borrowed TrueETH to its margin.
+
+TrueETH and TrueUSDC are capped, unbacked test tokens. TrueETH is a plain
+18-decimal ETH-like ERC-20—not wrapped ETH—and TrueUSDC is a plain 6-decimal
+USD-like ERC-20—not real USDC. The pool begins at 2,000 TrueUSDC per TrueETH,
+but neither asset is redeemable and that initial ratio is not an ETH/USD oracle.
+The mocks isolate the mechanism for a reliable testnet demonstration. A market
+intended to create real ETH exposure would instead require liquid, economically
+backed base and quote assets.
+
+The constructors mint 10,000 tETH and 20,000,000 tUSDC to the deployment
+treasury, against hard caps of 20,000 tETH and 40,000,000 tUSDC. Each address
+may call `claim()` once for 5 tETH or 10,000 tUSDC, subject to the respective
+cap. These quantities support a repeatable demo; they do not imply value.
 
 Leverage is the product, not an incidental use of the lending vaults. For the
-curated WETH/USDC market, the recommended major-asset configuration uses a 95%
+curated base/quote market, the recommended major-asset configuration uses a 95%
 liquidation threshold. The inherited 95% opening-headroom rule then caps
 admission at 90.25% LTV. Before pool costs, that corresponds to 10.26x long
 directional leverage and 9.26x short directional leverage. TruePerp therefore
-uses **up to 10x ETH leverage** as its product headline, while interfaces and
-tests retain the direction-specific values.
+uses **up to 10x leverage** as its product headline, while interfaces and tests
+retain the direction-specific values.
 
 Ordinary pool activity drives that process. The swap that moves the pool into a
 position's liquidation range calls the hook, and the hook can execute a bounded
@@ -38,7 +51,8 @@ mechanism concrete and testable, not to hold production funds.
 ## Architecture at a glance
 
 The hook is the liquidation engine. The two lending vaults only fund debt legs:
-the USDC vault lends to longs and the WETH vault lends to shorts. Uniswap LPs
+the TrueUSDC vault lends to longs and the TrueETH vault lends to shorts.
+Uniswap LPs
 are the immediate counterparties to every real trade and earn ordinary swap
 fees. A liquidation-penalty donation accrues to liquidity active at the
 post-chunk tick, which is not necessarily the same pro-rata set that filled the
@@ -52,8 +66,9 @@ also keeps the registered liquidation ticks valid. Adding carry requires
 debt-aware trigger re-registration as the borrow index changes.
 
 There is no separate GMX-style pool that pays marked trader profit. A profitable
-position is paid by the inventory it already holds: appreciated WETH for a long,
-or the USDC proceeds retained after borrowed WETH was sold for a short.
+position is paid by the inventory it already holds: appreciated base inventory
+for a long, or the quote proceeds retained after borrowed base was sold for a
+short.
 
 ## Leverage is the primary feature
 
@@ -69,8 +84,8 @@ PoolManager unlock. It does not create a recursive chain of loans:
 
 | Direction | Atomic construction | Resulting position |
 |---|---|---|
-| Long ETH | combine USDC margin with borrowed USDC, then buy WETH | hold WETH; owe USDC |
-| Short ETH | borrow WETH, sell it, then add the USDC proceeds to margin | hold USDC; owe WETH |
+| Long TrueETH | combine TrueUSDC margin with borrowed TrueUSDC, then buy TrueETH | hold TrueETH; owe TrueUSDC |
+| Short TrueETH | borrow TrueETH, sell it, then add the TrueUSDC proceeds to margin | hold TrueUSDC; owe TrueETH |
 
 Let `LTV` mean debt value divided by held-collateral value. Directional leverage
 after opening is
@@ -80,16 +95,17 @@ long leverage  = 1 / (1 - LTV)
 short leverage = LTV / (1 - LTV)
 ```
 
-The formulas differ because the long's WETH holding contains both
-margin-financed and debt-financed WETH, whereas the short's ETH exposure is only
-the borrowed WETH. At the recommended 90.25% opening cap:
+The formulas differ because the long's base holding contains both
+margin-financed and debt-financed inventory, whereas the short's directional
+exposure is only the borrowed base asset. At the recommended 90.25% opening
+cap:
 
 | Direction | Theoretical maximum before execution costs | Practical product label |
 |---|---:|---|
-| Long ETH | 10.26x | up to 10x |
-| Short ETH | 9.26x | up to about 9x |
+| Long base | 10.26x | up to 10x |
+| Short base | 9.26x | up to about 9x |
 
-At the exact 90.25% cap, soft liquidation begins after roughly a 5% ETH fall
+At the exact 90.25% cap, soft liquidation begins after roughly a 5% base-price fall
 for a long or a 5.26% rise for a short. Higher leverage therefore makes the
 gradual-liquidation mechanism central to the product, not a remote failure path.
 The 5x default demo offers more runway; the near-limit demo is a stress case.
@@ -97,7 +113,7 @@ The 5x default demo offers more runway; the near-limit demo is a stress case.
 These are risk-policy limits, not guaranteed quotes. The router records actual
 AMM output, and the hook values the result at a borrower-adverse pool price.
 Swap fees and price impact therefore reduce the notional obtainable from a
-fixed USDC deposit and can make a request near the limit revert. Vault cash and
+fixed TrueUSDC deposit and can make a request near the limit revert. Vault cash and
 the 90% utilization ceiling can constrain position size independently of the
 leverage ratio.
 
@@ -120,25 +136,27 @@ than a leverage multiplier. A demo frontend should translate its leverage
 selector into a direction-specific, execution-buffered borrow quote, then show
 the returned on-chain metrics after entry.
 
-For example, ignoring execution costs, 1,000 USDC can construct a 5x long by
-borrowing about 4,000 USDC and buying about 5,000 USDC of WETH. A 5x short
-instead borrows about 5,000 USDC worth of WETH, sells it, and holds about 6,000
-USDC. Equal borrow amounts do not produce equal labeled leverage in the two
-directions.
+For example, ignoring execution costs, 1,000 TrueUSDC can construct a 5x long
+by borrowing about 4,000 TrueUSDC and buying about 5,000 TrueUSDC of TrueETH. A
+5x short instead borrows about 5,000 TrueUSDC worth of TrueETH, sells it, and
+holds about 6,000 TrueUSDC. Equal borrow amounts do not produce equal labeled
+leverage in the two directions.
 
-## What does ETH/USDC trade?
+## What can this pool trade?
 
-An ETH/USDC market supports **ETH exposure only**.
+The TrueETH/TrueUSDC pool supports **TrueETH exposure only**.
 
 | Direction | Position holds | Position owes | Adverse liquidation trade |
 |---|---|---|---|
-| Long ETH | WETH | USDC | sell WETH for USDC |
-| Short ETH | USDC | WETH | buy WETH with USDC |
+| Long TrueETH | TrueETH | TrueUSDC | sell TrueETH for TrueUSDC |
+| Short TrueETH | TrueUSDC | TrueETH | buy TrueETH with TrueUSDC |
 
-The pair cannot price or settle a BTC, SOL, equity, or arbitrary-index position.
-A different underlying requires its own liquid base/quote pool and debt vaults.
-This restriction is a direct consequence of removing the external oracle: the
-same venue that defines the price must also execute the position's conversions.
+The pair cannot price or settle BTC, SOL, an equity, or an arbitrary index. A
+different underlying requires its own liquid base/quote pool and debt vaults.
+This restriction follows directly from removing an external price oracle: the
+same venue that defines the price also executes the position's conversions.
+For this unbacked demo, “TrueETH exposure” means exposure to the mock pool's
+endogenous price, not the market price of ETH.
 
 ## Why this is a perpetual-margin product
 
@@ -150,25 +168,26 @@ futures exchange. The separate observation clock also uses 32-bit timestamps
 and must be migrated before its 2106 wrap; the prototype is not claiming that
 this code can run unchanged for the entire term sentinel.
 
-For a long holding `B` WETH with `Dq` USDC debt at ETH price `P`, equity in USDC
-is
+For a long holding `B` units of base with `Dq` units of quote debt at base price
+`P`, equity in quote units is
 
 ```text
 long equity = P * B - Dq
 ```
 
-For a short holding `Cq` USDC with `Db` WETH debt,
+For a short holding `Cq` quote units with `Db` units of base debt,
 
 ```text
 short equity = Cq - P * Db
 ```
 
-That physical representation matters. An uncapped synthetic ETH long creates
-an unbounded USDC liability for its counterparty as ETH rises. Here the long
-already holds WETH, so the asset that creates the profit also funds it. A short
-retains the proceeds from selling borrowed WETH, which fund its profit if ETH
-falls. The remaining tail is ordinary collateralized-credit risk, with an
-explicit support-capital loss path, rather than an unfunded winner claim.
+That physical representation matters. An uncapped synthetic base long creates
+an unbounded quote liability for its counterparty as the base price rises. Here
+the long already holds the base asset, so the asset that creates the profit also
+funds it. A short retains the proceeds from selling borrowed base, which fund
+its profit if the base price falls. The remaining tail is ordinary
+collateralized-credit risk, with an explicit support-capital loss path, rather
+than an unfunded winner claim.
 
 ## Keeperless gradual liquidation
 
@@ -204,8 +223,8 @@ liquidation can be made impact-free.
 
 | Role | Party | Obligation |
 |---|---|---|
-| Trade counterparty | In-range Uniswap LPs | exchange WETH and USDC at the pool curve |
-| Credit provider | protocol-seeded USDC or WETH vault | lend the debt asset and absorb residual bad debt |
+| Trade counterparty | In-range Uniswap LPs | exchange TrueETH and TrueUSDC at the pool curve |
+| Credit provider | protocol-seeded TrueETH or TrueUSDC vault | lend the debt asset and absorb residual bad debt |
 | Automation | `TruePerpHook` | detect risk, pace chunks, swap, donate, and repay |
 | Position owner | Trader | supplies first-loss equity and receives the residual on close |
 
@@ -217,24 +236,26 @@ protocol-seeded, accepts the isolated credit risk, and earns no interest.
 ## Why not a physically hedged counterparty vault?
 
 A dual-asset counterparty vault could issue synthetic positions and hedge them
-in the spot pool. To back one long it would have to buy and reserve WETH; to
-back one short it would have to borrow or sell WETH and reserve the USDC
+in the spot pool. To back one long it would have to buy and reserve the base
+asset; to back one short it would have to borrow or sell base and reserve quote
 proceeds. Liquidation would then unwind those hedges.
 
 That construction adds hedge timing, rebalance, basis, withdrawal, and share-NAV
 risk. Once every synthetic unit is exactly hedged, it also converges to the
-simpler representation above: a long is WETH collateral plus USDC debt, and a
-short is USDC collateral plus WETH debt. TruePerp stores that physical position
+simpler representation above: a long is base collateral plus quote debt, and a
+short is quote collateral plus base debt. TruePerp stores that physical position
 directly instead of maintaining a second derivative ledger that can diverge
 from its hedge.
 
 ## Hackathon scope
 
-The demo deliberately targets one curated WETH/USDC market:
+The demo deliberately targets one curated TrueETH/TrueUSDC market:
 
-- one hook-enabled Uniswap v4 pool with protocol-seeded wide-range liquidity;
-- one isolated USDC lending vault and one isolated WETH lending vault;
-- up to 10x ETH leverage under the recommended major-asset risk profile,
+- one hook-enabled Uniswap v4 pool whose initial liquidity is a standard
+  PositionManager LP NFT;
+- one isolated TrueUSDC lending vault and one isolated TrueETH lending vault,
+  capitalized separately from the pool;
+- up to 10x base-asset leverage under the recommended major-asset risk profile,
   including an easy-to-follow 5x default trace and a near-limit scenario;
 - actual swap execution for entry, exit, and liquidation;
 - caller-supplied deadlines and price limits;
@@ -255,12 +276,15 @@ real debt, and directs a declared donation to active pool liquidity.**
 |---|---|
 | [`TruePerpHook`](src/TruePerpHook.sol) | position custody, pool observations, risk ranges, queue processing, swaps, and repayment |
 | [`PerpLendingVaultFactory`](src/PerpLendingVaultFactory.sol) | deploys the two zero-rate, utilization-capped support vaults used by v0 |
-| [`LendingVault`](lib/truelend/src/LendingVault.sol) | debt-share and loss accounting, instantiated once for USDC and once for WETH |
+| [`TrueDemoTokens`](src/mocks/TrueDemoTokens.sol) | capped, unbacked TrueETH and TrueUSDC contracts with one testnet faucet claim per address |
+| [`LendingVault`](lib/truelend/src/LendingVault.sol) | debt-share and loss accounting, instantiated once for TrueUSDC and once for TrueETH |
 | [`TruePerpRouter`](src/TruePerpRouter.sol) | atomic quote-margin entry and physical exit, user price protection, and current spot-marked directional leverage metrics |
 | [`frontend`](frontend/README.md) | responsive hackathon interface with a chart/order ticket on the left and an interactive physical-leverage explainer on the right |
 | TrueLend libraries | tick indexing, truncated observations, range math, and chunk sizing |
 
-See [DESIGN.md](DESIGN.md) for the state machine and accounting model,
+See [DEPLOYMENT.md](DEPLOYMENT.md) for mock-token supply, pool liquidity,
+lending-vault capitalization, and Unichain Sepolia commands. See
+[DESIGN.md](DESIGN.md) for the state machine and accounting model,
 [WHITEPAPER.md](WHITEPAPER.md) for the formal proposal,
 [RESEARCH.md](RESEARCH.md) for the design alternatives, and
 [PARAMETERS.md](PARAMETERS.md) for the demo parameter rationale.
@@ -273,15 +297,23 @@ forge test --offline
 forge test --root lib/truelend --offline
 ```
 
-## Frontend and deployment status
+## Frontend and deployment
 
-The repository does **not** currently contain a verifiable TruePerp deployment
-on Unichain Sepolia. There is no checked-in broadcast record, deployment
-manifest, pool ID, or set of protocol contract addresses. `script/Deploy.s.sol`
-deploys the factory, hook, and router, but a usable market still requires pool
-initialization, perpetual configuration, router activation, pool liquidity, and
-capital in both lending vaults. Do not present the current local changes as
-deployed.
+`script/Deploy.s.sol` is the one-shot market bootstrap: it creates the capped
+mock tokens, deploys the factory, hook, and router, initializes and activates
+the pool, mints the initial standard PositionManager LP NFT, and capitalizes
+both debt vaults. `script/WarmOracle.s.sol` then contributes one small,
+alternating-direction observation swap per invocation. It must succeed eight
+times, with at least 60 seconds between calls, before the nine-observation
+admission oracle is ready. The [deployment guide](DEPLOYMENT.md) documents the
+full sequence and the public values that should be retained.
+
+The complete TrueETH/TrueUSDC market is deployed on Unichain Sepolia. Public
+addresses, the pool ID, LP NFT #7913, capital balances, and transaction hashes
+are recorded in the sanitized
+[`deployments/unichain-sepolia.json`](deployments/unichain-sepolia.json)
+manifest. Its nine-observation admission oracle is warmed and ready. The
+browser interface remains preview-only even when pointed at this deployment.
 
 The hosted-demo frontend is implemented in [`frontend`](frontend/README.md). It
 runs safely without addresses and never sends a transaction:
@@ -328,7 +360,8 @@ split and reduced. This margin should be rechecked for every compiler or kernel
 change.
 
 The root suite includes explicit near-10x long, approximately-9x short,
-opening-headroom, and major-asset LT-cap tests in addition to the position and
-liquidation scenarios. All 22 root tests and all 94 inherited TrueLend tests
-pass offline. Both suites must be run when the kernel changes. TruePerp remains
-a research prototype and has not been externally audited.
+opening-headroom, and major-asset LT-cap tests in addition to the position,
+liquidation, demo-token, and canonical LP-bootstrap scenarios. All 31 root
+tests and all 94 inherited TrueLend tests pass offline. Both suites must be run
+when the kernel changes. TruePerp remains a research prototype and has not been
+externally audited.

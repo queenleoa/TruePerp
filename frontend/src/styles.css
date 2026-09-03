@@ -384,7 +384,7 @@ input:focus-visible {
   border: 2px solid var(--surface);
   border-radius: 50%;
   font-family: "DM Mono", monospace;
-  font-size: 13px;
+  font-size: 10px;
   font-weight: 500;
 }
 

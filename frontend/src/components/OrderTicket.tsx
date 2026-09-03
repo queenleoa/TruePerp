@@ -13,7 +13,7 @@ import {
   Direction,
   ENTRY_PRICE,
   formatNumber,
-  formatUsd,
+  formatQuote,
   getMaxLeverage,
   getMinLeverage,
   previewPosition,
@@ -93,7 +93,7 @@ export function OrderTicket({
       <div className="ticket-title-row">
         <div>
           <span className="eyebrow">Order ticket</span>
-          <h2>Trade ETH</h2>
+          <h2>Trade TrueETH</h2>
         </div>
         <button
           aria-expanded={showSettings}
@@ -165,12 +165,12 @@ export function OrderTicket({
             value={marginInput}
           />
           <button aria-label="Select margin token" type="button">
-            <span className="usdc-symbol">$</span>
-            USDC
+            <span className="usdc-symbol">t$</span>
+            TrueUSDC
             <ChevronDown size={14} />
           </button>
         </div>
-        <span className="field-fiat">{formatUsd(margin)}</span>
+        <span className="field-fiat">{formatQuote(margin)}</span>
         {!marginIsValid && <span className="field-error">Enter margin above zero.</span>}
       </div>
 
@@ -204,7 +204,7 @@ export function OrderTicket({
           <span>
             {direction === "long"
               ? "The 30 bp fee-adjusted target opens near 90% LTV, below the 90.25% admission cap. A live impact quote is still required."
-              : "A 9× physical short opens near 90% LTV. Borrowed ETH—not total USDC held—is its directional exposure."}
+              : "A 9× physical short opens near 90% LTV. Borrowed TrueETH—not total TrueUSDC held—is its directional exposure."}
           </span>
         </div>
       </div>
@@ -216,19 +216,19 @@ export function OrderTicket({
         </div>
         <dl>
           <div>
-            <dt>{direction === "long" ? "Borrow USDC" : "Borrow WETH"}</dt>
+            <dt>{direction === "long" ? "Borrow TrueUSDC" : "Borrow TrueETH"}</dt>
             <dd>
               {direction === "long"
-                ? formatUsd(preview.borrowValue)
-                : `${formatNumber(preview.debtBase)} WETH`}
+                ? formatQuote(preview.borrowValue)
+                : `${formatNumber(preview.debtBase)} TrueETH`}
             </dd>
           </div>
           <div>
-            <dt>{direction === "long" ? "Hold WETH" : "Hold USDC"}</dt>
+            <dt>{direction === "long" ? "Hold TrueETH" : "Hold TrueUSDC"}</dt>
             <dd>
               {direction === "long"
-                ? `${formatNumber(preview.baseExposure)} WETH`
-                : formatUsd(preview.collateralValue)}
+                ? `${formatNumber(preview.baseExposure)} TrueETH`
+                : formatQuote(preview.collateralValue)}
             </dd>
           </div>
           <div>
@@ -238,7 +238,7 @@ export function OrderTicket({
           <div>
             <dt>Liquidation begins</dt>
             <dd>
-              {formatUsd(preview.liquidationPrice)}
+              {formatQuote(preview.liquidationPrice)}
               <small>
                 {direction === "long" ? "−" : "+"}
                 {(preview.liquidationDistance * 100).toFixed(1)}%
@@ -251,7 +251,7 @@ export function OrderTicket({
           </div>
           <div>
             <dt>Entry price</dt>
-            <dd>{formatUsd(ENTRY_PRICE)}</dd>
+            <dd>{formatQuote(ENTRY_PRICE)}</dd>
           </div>
           <div>
             <dt>Illustrative slippage limit</dt>
@@ -280,7 +280,7 @@ export function OrderTicket({
         {hasAddressConfiguration ? <Info size={14} /> : <CircleAlert size={14} />}
         <span>
           {hasAddressConfiguration
-            ? "Address-shaped configuration detected. This build does not verify bytecode, encode calldata, or submit transactions."
+            ? "Demo-market addresses are present. This build does not verify bytecode, encode calldata, or submit transactions."
             : "Demo mode: no complete TruePerp market configuration is present and no transaction can be sent."}
         </span>
       </div>

@@ -5,9 +5,10 @@ interface ImportMetaEnv {
   readonly VITE_TRUEPERP_ROUTER?: string;
   readonly VITE_TRUEPERP_HOOK?: string;
   readonly VITE_POOL_MANAGER?: string;
+  readonly VITE_POSITION_MANAGER?: string;
   readonly VITE_POOL_ID?: string;
-  readonly VITE_WETH_ADDRESS?: string;
-  readonly VITE_USDC_ADDRESS?: string;
+  readonly VITE_BASE_TOKEN_ADDRESS?: string;
+  readonly VITE_QUOTE_TOKEN_ADDRESS?: string;
   readonly VITE_DEPLOYMENT_TX?: string;
 }
 

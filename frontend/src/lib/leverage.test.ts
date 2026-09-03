@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   clampLeverage,
   ENTRY_PRICE,
-  formatUsd,
+  formatQuote,
   POOL_FEE_RATE,
   previewPosition,
 } from "./leverage";
 
 describe("physical leverage preview", () => {
+  it("uses the demo pool's 2,000 TrueUSDC per TrueETH initialization price", () => {
+    expect(ENTRY_PRICE).toBe(2_000);
+  });
+
   it("constructs a 10x long from margin plus quote debt", () => {
     const position = previewPosition("long", 1_000, 10);
 
@@ -57,7 +61,7 @@ describe("physical leverage preview", () => {
     expect(position.realizedLeverage).toBe(0);
   });
 
-  it("formats whole-dollar diagram values without throwing", () => {
-    expect(formatUsd(1_000, 0)).toBe("$1,000");
+  it("labels quote values as mock TrueUSDC rather than dollars", () => {
+    expect(formatQuote(1_000, 0)).toBe("1,000 tUSDC");
   });
 });

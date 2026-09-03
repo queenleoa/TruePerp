@@ -13,7 +13,7 @@ interface Candle {
 }
 
 function makeCandles(seedOffset: number): Candle[] {
-  let price = 3_722 + seedOffset * 3;
+  let price = 1_940 + seedOffset * 3;
   let seed = 91 + seedOffset;
   const candles: Candle[] = [];
 
@@ -62,30 +62,30 @@ export function PriceChart() {
   const change = ((latest.close - first.open) / first.open) * 100;
 
   return (
-    <section className="chart-panel" aria-label="Illustrative ETH USDC price chart">
+    <section className="chart-panel" aria-label="Illustrative TrueETH TrueUSDC price chart">
       <div className="chart-heading">
         <div>
           <button className="market-select" type="button" onClick={() => setShowInfo((value) => !value)}>
             <span className="token-pair" aria-hidden="true">
-              <span className="eth-mark">Ξ</span>
-              <span className="usdc-mark">$</span>
+              <span className="eth-mark">tΞ</span>
+              <span className="usdc-mark">t$</span>
             </span>
             <span>
-              <strong>ETH / USDC</strong>
-              <small>Uniswap v4</small>
+              <strong>TrueETH / TrueUSDC</strong>
+              <small>Uniswap v4 · demo tokens</small>
             </span>
             <ChevronDown size={16} strokeWidth={1.8} />
           </button>
           {showInfo && (
             <div className="market-popover">
               <span>Prototype market</span>
-              <strong>ETH / USDC · 30 bps</strong>
-              <small>Price series is illustrative—not an oracle feed.</small>
+              <strong>TrueETH / TrueUSDC · 30 bps</strong>
+              <small>Unbacked mock assets; the chart is not an ETH/USD feed.</small>
             </div>
           )}
         </div>
         <div className="price-cluster">
-          <strong>${formatNumber(ENTRY_PRICE, 2)}</strong>
+          <strong>{formatNumber(ENTRY_PRICE, 2)} tUSDC</strong>
           <span>+{change.toFixed(2)}%</span>
           <small>illustrative</small>
         </div>
@@ -121,7 +121,7 @@ export function PriceChart() {
         <svg
           className="candle-chart"
           role="img"
-          aria-label={`Simulated ${timeframe} candlestick chart for ETH USDC`}
+          aria-label={`Simulated ${timeframe} candlestick chart for TrueETH TrueUSDC`}
           viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="none"
         >
@@ -194,9 +194,9 @@ export function PriceChart() {
       </div>
 
       <div className="market-stats">
-        <div><span>Demo 24h high</span><strong>$3,912.44</strong></div>
-        <div><span>Demo 24h low</span><strong>$3,701.12</strong></div>
-        <div><span>Demo liquidity</span><strong>$8.42m</strong></div>
+        <div><span>Demo 24h high</span><strong>2,034.4 tUSDC</strong></div>
+        <div><span>Demo 24h low</span><strong>1,971.2 tUSDC</strong></div>
+        <div><span>LP deposits</span><strong>1k tETH + 2m tUSDC</strong></div>
         <div><span>Open interest</span><strong>Demo</strong></div>
       </div>
     </section>
