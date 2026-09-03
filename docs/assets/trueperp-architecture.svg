@@ -1,0 +1,162 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
+  <title id="title">TruePerp architecture</title>
+  <desc id="desc">An Excalidraw-style architecture diagram showing the trader, stateless TruePerp router, physical positions in the hook, isolated WETH and USDC debt vaults, and the Uniswap v4 pool that prices and executes entry, exit, and gradual liquidation.</desc>
+  <defs>
+    <filter id="rough" x="-3%" y="-3%" width="106%" height="106%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="17" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.35" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <marker id="arrow-purple" markerWidth="14" markerHeight="14" refX="11" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M1 1 L11 6 L1 11" fill="none" stroke="#7048e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="14" markerHeight="14" refX="11" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M1 1 L11 6 L1 11" fill="none" stroke="#1971c2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="14" markerHeight="14" refX="11" refY="6" orient="auto-start-reverse" markerUnits="strokeWidth">
+      <path d="M1 1 L11 6 L1 11" fill="none" stroke="#2b8a3e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="14" markerHeight="14" refX="11" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M1 1 L11 6 L1 11" fill="none" stroke="#e67700" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      .paper { fill: #fffdf8; }
+      .ink { fill: #1f2937; }
+      .title { font: 700 36px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #1f2937; }
+      .subtitle { font: 400 19px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #4b5563; }
+      .h1 { font: 700 24px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #1f2937; }
+      .h2 { font: 700 19px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #1f2937; }
+      .body { font: 400 17px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #374151; }
+      .small { font: 400 14px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #4b5563; }
+      .tiny { font: 400 12px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #6b7280; }
+      .mono { font: 600 15px "Cascadia Code", "SFMono-Regular", monospace; fill: #1f2937; }
+      .box { stroke: #1f2937; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; filter: url(#rough); }
+      .ghost { fill: none; stroke: #1f2937; stroke-width: 1.1; opacity: .28; transform: translate(2px, 2px); }
+      .purple { fill: none; stroke: #7048e8; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-purple); }
+      .blue { fill: none; stroke: #1971c2; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-blue); }
+      .green { fill: none; stroke: #2b8a3e; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-green); }
+      .orange { fill: none; stroke: #e67700; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-orange); }
+      .dash { stroke-dasharray: 10 8; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="980" class="paper"/>
+  <path d="M35 34 C390 22 1198 27 1564 38 C1575 278 1570 704 1561 944 C1175 956 397 953 38 943 C28 688 27 285 35 34 Z" fill="none" stroke="#d1d5db" stroke-width="2" filter="url(#rough)"/>
+
+  <text x="800" y="72" text-anchor="middle" class="title">TruePerp — physical leverage, pool-native liquidation</text>
+  <text x="800" y="105" text-anchor="middle" class="subtitle">One WETH / USDC market. No synthetic PnL house. No keeper vault.</text>
+
+  <!-- Trader -->
+  <path d="M62 202 Q64 166 99 164 L306 168 Q337 169 338 201 L335 398 Q334 426 302 430 L96 426 Q64 425 61 395 Z" fill="#fff4d6" class="box"/>
+  <path d="M67 207 Q68 173 101 170 L302 173 Q330 174 331 202 L329 392 Q328 418 299 422" class="ghost"/>
+  <circle cx="199" cy="225" r="34" fill="#ffe8a3" stroke="#1f2937" stroke-width="2" filter="url(#rough)"/>
+  <path d="M182 221 Q199 205 216 221 M180 232 Q199 247 218 232" fill="none" stroke="#1f2937" stroke-width="2" stroke-linecap="round"/>
+  <text x="199" y="285" text-anchor="middle" class="h1">Trader</text>
+  <text x="87" y="326" class="body">• supplies USDC margin</text>
+  <text x="87" y="356" class="body">• selects long / short</text>
+  <text x="87" y="386" class="body">• chooses leverage + limits</text>
+  <path d="M105 448 Q200 430 295 449" fill="none" stroke="#e67700" stroke-width="6" opacity=".25" filter="url(#rough)"/>
+  <text x="200" y="477" text-anchor="middle" class="h2" fill="#e67700">up to ~10x ETH</text>
+
+  <!-- Router -->
+  <path d="M425 185 Q429 153 460 151 L714 154 Q745 157 744 188 L741 412 Q739 441 706 444 L458 440 Q427 438 424 408 Z" fill="#f3f0ff" class="box"/>
+  <path d="M432 191 Q436 160 463 159 L708 162 Q735 163 737 190 L734 405 Q732 432 704 436" class="ghost"/>
+  <text x="585" y="205" text-anchor="middle" class="h1">TruePerpRouter</text>
+  <text x="585" y="234" text-anchor="middle" class="small">stateless product interface</text>
+  <path d="M463 257 Q585 247 706 259 L703 309 Q586 319 466 309 Z" fill="#e5dbff" stroke="#7048e8" stroke-width="2" filter="url(#rough)"/>
+  <text x="585" y="289" text-anchor="middle" class="h2">one atomic v4 unlock</text>
+  <text x="458" y="348" class="body">1. borrow the debt asset</text>
+  <text x="458" y="378" class="body">2. swap through this pool</text>
+  <text x="458" y="408" class="body">3. open physical collateral + debt</text>
+
+  <path d="M340 296 C370 291 391 291 417 293" class="purple"/>
+  <text x="379" y="278" text-anchor="middle" class="small">margin + intent</text>
+
+  <!-- Hook and positions -->
+  <path d="M821 151 Q826 128 854 128 L1160 132 Q1191 134 1190 164 L1186 438 Q1185 466 1152 470 L853 466 Q823 465 819 437 Z" fill="#e7f5ff" class="box"/>
+  <path d="M828 157 Q833 136 857 135 L1153 139 Q1181 141 1182 166 L1178 432 Q1177 458 1149 462" class="ghost"/>
+  <text x="1004" y="184" text-anchor="middle" class="h1">TruePerpHook</text>
+  <text x="1004" y="212" text-anchor="middle" class="small">custody + risk ranges + liquidation queue</text>
+
+  <path d="M852 241 Q857 225 876 226 L985 228 Q1002 229 1003 247 L1001 390 Q999 407 980 408 L873 406 Q854 405 852 387 Z" fill="#d3f9d8" stroke="#2b8a3e" stroke-width="2" filter="url(#rough)"/>
+  <text x="927" y="270" text-anchor="middle" class="h2">LONG ETH</text>
+  <text x="874" y="308" class="body">holds WETH</text>
+  <text x="874" y="338" class="body">owes USDC</text>
+  <text x="874" y="375" class="mono">~10.26x max*</text>
+
+  <path d="M1021 241 Q1025 225 1045 226 L1154 228 Q1171 229 1172 247 L1170 390 Q1168 407 1149 408 L1041 406 Q1023 405 1021 387 Z" fill="#fff3bf" stroke="#e67700" stroke-width="2" filter="url(#rough)"/>
+  <text x="1097" y="270" text-anchor="middle" class="h2">SHORT ETH</text>
+  <text x="1044" y="308" class="body">holds USDC</text>
+  <text x="1044" y="338" class="body">owes WETH</text>
+  <text x="1044" y="375" class="mono">~9.26x max*</text>
+
+  <path d="M747 296 C773 291 790 291 813 294" class="purple"/>
+  <text x="781" y="277" text-anchor="middle" class="small">record position</text>
+
+  <!-- Vaults -->
+  <path d="M1275 154 Q1280 132 1302 133 L1511 137 Q1536 139 1535 164 L1532 271 Q1531 294 1506 296 L1300 293 Q1277 292 1274 268 Z" fill="#ebfbee" class="box"/>
+  <text x="1405" y="183" text-anchor="middle" class="h2">USDC debt vault</text>
+  <text x="1405" y="216" text-anchor="middle" class="body">lends to ETH longs</text>
+  <text x="1405" y="247" text-anchor="middle" class="small">bears USDC bad-debt tail</text>
+  <text x="1405" y="274" text-anchor="middle" class="tiny">zero carry in the hackathon demo</text>
+
+  <path d="M1275 328 Q1279 306 1303 307 L1511 310 Q1535 312 1535 337 L1531 445 Q1529 468 1504 469 L1300 466 Q1277 465 1274 442 Z" fill="#ebfbee" class="box"/>
+  <text x="1405" y="357" text-anchor="middle" class="h2">WETH debt vault</text>
+  <text x="1405" y="390" text-anchor="middle" class="body">lends to ETH shorts</text>
+  <text x="1405" y="421" text-anchor="middle" class="small">bears WETH bad-debt tail</text>
+  <text x="1405" y="448" text-anchor="middle" class="tiny">90% utilization ceiling</text>
+
+  <path d="M1264 211 C1219 211 1198 238 1184 272" class="green" marker-start="url(#arrow-green)"/>
+  <text x="1229" y="196" text-anchor="middle" class="small">lend / repay USDC</text>
+  <path d="M1264 388 C1220 386 1200 367 1184 342" class="green" marker-start="url(#arrow-green)"/>
+  <text x="1234" y="415" text-anchor="middle" class="small">lend / repay WETH</text>
+
+  <!-- Pool -->
+  <path d="M376 570 Q382 528 423 525 L1123 532 Q1164 535 1163 577 L1158 759 Q1155 798 1112 801 L421 794 Q379 792 375 751 Z" fill="#e7f5ff" class="box"/>
+  <path d="M384 577 Q390 537 427 534 L1116 541 Q1154 543 1155 579 L1150 750 Q1148 787 1109 792" class="ghost"/>
+  <text x="770" y="580" text-anchor="middle" class="h1">Uniswap v4 WETH / USDC pool</text>
+  <text x="770" y="613" text-anchor="middle" class="subtitle">the execution venue and pool-local price source</text>
+
+  <path d="M423 648 Q429 630 450 631 L624 633 Q644 634 645 653 L643 733 Q641 752 620 753 L450 751 Q429 750 427 730 Z" fill="#ffffff" stroke="#1971c2" stroke-width="2" filter="url(#rough)"/>
+  <text x="535" y="670" text-anchor="middle" class="h2">ENTRY / EXIT</text>
+  <text x="535" y="701" text-anchor="middle" class="small">actual WETH ↔ USDC swaps</text>
+  <text x="535" y="727" text-anchor="middle" class="small">fees + price impact are real</text>
+
+  <path d="M677 648 Q683 630 704 631 L870 633 Q892 634 893 653 L891 733 Q889 752 867 753 L704 751 Q683 750 681 730 Z" fill="#ffffff" stroke="#1971c2" stroke-width="2" filter="url(#rough)"/>
+  <text x="785" y="670" text-anchor="middle" class="h2">PRICE + CLOCK</text>
+  <text x="785" y="701" text-anchor="middle" class="small">ticks + observations</text>
+  <text x="785" y="727" text-anchor="middle" class="small">ordinary swaps drive callbacks</text>
+
+  <path d="M925 648 Q931 630 952 631 L1104 633 Q1126 634 1127 653 L1125 733 Q1123 752 1101 753 L952 751 Q931 750 929 730 Z" fill="#ffffff" stroke="#e67700" stroke-width="2" filter="url(#rough)"/>
+  <text x="1027" y="670" text-anchor="middle" class="h2">LIQUIDATION</text>
+  <text x="1027" y="701" text-anchor="middle" class="small">paced collateral → debt chunks</text>
+  <text x="1027" y="727" text-anchor="middle" class="small">LP donation + vault repayment</text>
+
+  <path d="M586 447 C576 488 548 514 532 558" class="blue"/>
+  <text x="520" y="505" text-anchor="end" class="small">route every conversion</text>
+  <path d="M984 475 C970 506 902 517 875 558" class="blue dash"/>
+  <text x="842" y="506" class="small">callbacks + observations</text>
+  <path d="M1050 558 C1082 522 1111 501 1118 475" class="orange"/>
+  <text x="1135" y="544" class="small">bounded chunks</text>
+
+  <!-- Liveness and boundaries -->
+  <path d="M74 617 Q77 591 105 589 L300 592 Q330 594 329 623 L326 738 Q324 765 296 767 L104 764 Q77 762 74 735 Z" fill="#fff9db" class="box"/>
+  <text x="201" y="626" text-anchor="middle" class="h2">Who triggers work?</text>
+  <text x="97" y="662" class="body">ordinary pool swaps</text>
+  <text x="97" y="694" class="body">+ permissionless poke</text>
+  <text x="97" y="730" class="small">not a privileged keeper</text>
+  <path d="M331 675 C350 674 358 674 369 674" class="orange"/>
+
+  <path d="M85 852 C255 827 432 837 593 854" fill="none" stroke="#7048e8" stroke-width="8" opacity=".18" filter="url(#rough)"/>
+  <text x="340" y="846" text-anchor="middle" class="h2">Uniswap LPs are swap counterparties</text>
+  <text x="340" y="878" text-anchor="middle" class="body">They exchange real inventory. They do not pay marked trader PnL.</text>
+
+  <path d="M636 852 C820 829 1010 837 1192 855" fill="none" stroke="#2b8a3e" stroke-width="8" opacity=".18" filter="url(#rough)"/>
+  <text x="914" y="846" text-anchor="middle" class="h2">Vaults are credit providers</text>
+  <text x="914" y="878" text-anchor="middle" class="body">They fund leverage and absorb only their asset's residual credit loss.</text>
+
+  <path d="M1227 852 C1320 833 1430 839 1518 855" fill="none" stroke="#e67700" stroke-width="8" opacity=".18" filter="url(#rough)"/>
+  <text x="1373" y="846" text-anchor="middle" class="h2">Hook = automation</text>
+  <text x="1373" y="878" text-anchor="middle" class="body">detect → pace → swap → repay</text>
+
+  <text x="800" y="932" text-anchor="middle" class="small">* 95% LT × 95% opening headroom = 90.25% maximum opening LTV; execution costs require a buffer.</text>
+</svg>

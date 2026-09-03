@@ -140,16 +140,7 @@ borrowing the other token, swapping the borrowed value into the held token, and
 depositing the complete held amount. The router executes those operations in a
 single PoolManager unlock:
 
-```mermaid
-flowchart LR
-    M[USDC margin] --> R[TruePerp router]
-    QV[USDC vault] -->|borrow for long| R
-    BV[WETH vault] -->|borrow for short| R
-    R -->|margin + USDC debt| L[buy WETH]
-    R -->|WETH debt| S[sell WETH]
-    L --> LP[long: WETH held / USDC owed]
-    S --> SP[short: USDC held / WETH owed]
-```
+![TruePerp long, short, and gradual-liquidation leverage flows](docs/assets/trueperp-leverage.svg)
 
 This atomic route is economically equivalent to the familiar repeated
 deposit-borrow-swap loop, but it leaves one collateral balance and one debt

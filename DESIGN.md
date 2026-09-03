@@ -71,29 +71,7 @@ native units.
 
 ## 3. System architecture
 
-```mermaid
-flowchart TB
-    subgraph Market[One WETH / USDC TruePerp market]
-        H[TruePerpHook<br/>positions + risk engine]
-        U[Uniswap v4 pool<br/>price + execution + callbacks]
-        QV[Zero-rate USDC debt vault<br/>funds longs]
-        BV[Zero-rate WETH debt vault<br/>funds shorts]
-        R[TruePerpRouter<br/>atomic entry / exit]
-    end
-
-    T[Trader] -->|margin, direction, limits| R
-    R --> H
-    QV -->|USDC loan| R
-    BV -->|WETH loan| R
-    R <-->|entry and exit swaps| U
-    H -->|liquidation swaps| U
-    U -->|beforeSwap / afterSwap| H
-    H -->|USDC repayment| QV
-    H -->|WETH repayment| BV
-    H -->|penalty donation| U
-```
-
-![TruePerp security boundaries](docs/assets/security-boundaries.svg)
+![TruePerp architecture: physical leverage, pool execution, and isolated credit](docs/assets/trueperp-architecture.svg)
 
 ### 3.1 TruePerpHook
 
@@ -202,26 +180,12 @@ its v0 borrow index is constant because every configured rate is zero. Current
 debt therefore equals the outstanding principal, subject only to repayments and
 integer rounding.
 
+![Atomic physical leverage for long and short ETH positions](docs/assets/trueperp-leverage.svg)
+
 ### 5.1 Long ETH
 
 A long holds `C_b` WETH and owes `D_q` USDC. The router combines the trader's
 USDC margin with borrowed USDC and swaps the complete amount into WETH.
-
-```mermaid
-sequenceDiagram
-    participant T as Trader
-    participant R as Router
-    participant V as USDC vault
-    participant U as WETH/USDC pool
-    participant H as Hook
-
-    T->>R: supply USDC margin
-    V->>R: lend USDC
-    R->>U: swap margin + borrowed USDC for WETH
-    U-->>R: WETH at actual pool execution
-    R->>H: custody purchased WETH
-    H->>H: record USDC debt shares and risk range
-```
 
 Long equity in quote units is
 
@@ -238,22 +202,6 @@ cash payout when ETH rises.
 A short holds `C_q` USDC and owes `D_b` WETH. The base vault lends WETH, the
 router sells it through the pool, and the hook holds the proceeds together with
 the trader's USDC margin.
-
-```mermaid
-sequenceDiagram
-    participant T as Trader
-    participant R as Router
-    participant V as WETH vault
-    participant U as WETH/USDC pool
-    participant H as Hook
-
-    T->>R: supply USDC margin
-    V->>R: lend WETH
-    R->>U: sell borrowed WETH for USDC
-    U-->>R: USDC at actual pool execution
-    R->>H: custody margin + sale proceeds
-    H->>H: record WETH debt shares and risk range
-```
 
 Short equity in quote units is
 
@@ -410,25 +358,6 @@ exceeding callback work bounds. That dynamic re-registration is intentionally
 outside v0.
 
 ## 8. Keeperless gradual liquidation
-
-```mermaid
-sequenceDiagram
-    participant S as Ordinary swapper
-    participant U as Uniswap PoolManager
-    participant H as TruePerpHook
-    participant L as In-range LPs
-    participant V as Debt vault
-
-    S->>U: ordinary WETH/USDC swap
-    U->>H: beforeSwap (record pre-swap tick)
-    U->>H: afterSwap (new tick)
-    H->>H: walk crossed triggers; process bounded queue
-    H->>U: exact-input liquidation chunk
-    U-->>H: actual output amount
-    H->>L: donate penalty in output asset
-    H->>V: repay debt with net output
-    H->>H: update collateral and debt shares
-```
 
 ### 8.1 Chunk direction
 

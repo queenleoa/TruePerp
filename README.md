@@ -3,7 +3,7 @@
 **Up to 10x expiry-free ETH leverage with keeperless, gradual liquidation on
 Uniswap v4.**
 
-![TruePerp physical market architecture](docs/assets/architecture.png)
+![TruePerp physical market architecture](docs/assets/trueperp-architecture.svg)
 
 TruePerp represents leverage with real assets and real debt. A position is not
 an unbacked cash promise against a house vault:
@@ -36,22 +36,6 @@ This repository is a hackathon research prototype. It is intended to make the
 mechanism concrete and testable, not to hold production funds.
 
 ## Architecture at a glance
-
-```mermaid
-flowchart LR
-    T[Trader] -->|margin + direction| R[TruePerp router]
-    R --> H[TruePerp hook]
-
-    QV[Zero-rate USDC debt vault] -->|funds long debt| R
-    BV[Zero-rate WETH debt vault] -->|funds short debt| R
-
-    R <-->|entry and exit swaps| U[Uniswap v4<br/>WETH / USDC pool]
-    H -->|liquidation swaps| U
-    U -->|beforeSwap / afterSwap| H
-    H -->|net chunk proceeds repay debt| QV
-    H -->|net chunk proceeds repay debt| BV
-    H -->|liquidation penalty donation| U
-```
 
 The hook is the liquidation engine. The two lending vaults only fund debt legs:
 the USDC vault lends to longs and the WETH vault lends to shorts. Uniswap LPs
@@ -273,6 +257,7 @@ real debt, and directs a declared donation to active pool liquidity.**
 | [`PerpLendingVaultFactory`](src/PerpLendingVaultFactory.sol) | deploys the two zero-rate, utilization-capped support vaults used by v0 |
 | [`LendingVault`](lib/truelend/src/LendingVault.sol) | debt-share and loss accounting, instantiated once for USDC and once for WETH |
 | [`TruePerpRouter`](src/TruePerpRouter.sol) | atomic quote-margin entry and physical exit, user price protection, and current spot-marked directional leverage metrics |
+| [`frontend`](frontend/README.md) | responsive hackathon interface with a chart/order ticket on the left and an interactive physical-leverage explainer on the right |
 | TrueLend libraries | tick indexing, truncated observations, range math, and chunk sizing |
 
 See [DESIGN.md](DESIGN.md) for the state machine and accounting model,
@@ -287,6 +272,33 @@ forge build
 forge test --offline
 forge test --root lib/truelend --offline
 ```
+
+## Frontend and deployment status
+
+The repository does **not** currently contain a verifiable TruePerp deployment
+on Unichain Sepolia. There is no checked-in broadcast record, deployment
+manifest, pool ID, or set of protocol contract addresses. `script/Deploy.s.sol`
+deploys the factory, hook, and router, but a usable market still requires pool
+initialization, perpetual configuration, router activation, pool liquidity, and
+capital in both lending vaults. Do not present the current local changes as
+deployed.
+
+The hosted-demo frontend is implemented in [`frontend`](frontend/README.md). It
+runs safely without addresses and never sends a transaction:
+
+```bash
+cd frontend
+cp .env.example .env.local
+npm ci
+npm test
+npm run dev
+```
+
+For Vercel or Netlify, set the project root to `frontend`, build with
+`npm run build`, and publish `dist`. Add verified contract values through the
+host's environment settings only after deployment. The
+[frontend guide](frontend/README.md) lists every variable and the remaining
+work required before enabling writes.
 
 ## Status
 

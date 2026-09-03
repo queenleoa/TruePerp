@@ -33,6 +33,12 @@ does not eliminate price manipulation, execution loss, liquidity gaps, or bad
 debt. The checked-in implementation remains an unaudited research prototype,
 not a production deployment.
 
+![TruePerp physical-market architecture](docs/assets/trueperp-architecture.svg)
+
+*Figure 1. The router constructs physical exposure, the hook owns the risk
+state machine, the WETH/USDC pool prices and executes every conversion, and the
+isolated vaults provide debt rather than marked-PnL backing.*
+
 ## 1. Instrument definition
 
 ### 1.1 One pool, one base exposure
@@ -143,6 +149,12 @@ the route records actual pool output and admission uses a borrower-adverse
 price, so swap fees and impact reduce the execution-safe request. Vault cash,
 the hard utilization ceiling, and route price bounds constrain absolute
 position size separately.
+
+![Atomic physical long, short, and liquidation flows](docs/assets/trueperp-leverage.svg)
+
+*Figure 2. Frictionless examples expose the long/short leverage asymmetry. The
+transaction records actual swap output, so executable requests must leave a
+buffer for fees, impact, and admission pricing.*
 
 ## 2. System architecture
 

@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">How TruePerp creates leveraged long and short positions</title>
+  <desc id="desc">An Excalidraw-style diagram showing quote margin, lending-vault debt, Uniswap swaps, physical long and short balances, and gradual liquidation through the same pool.</desc>
+  <defs>
+    <filter id="rough" x="-3%" y="-3%" width="106%" height="106%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.014" numOctaves="2" seed="29" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.25" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <marker id="a-green" markerWidth="14" markerHeight="14" refX="11" refY="6" orient="auto">
+      <path d="M1 1 L11 6 L1 11" fill="none" stroke="#2b8a3e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="a-orange" markerWidth="14" markerHeight="14" refX="11" refY="6" orient="auto">
+      <path d="M1 1 L11 6 L1 11" fill="none" stroke="#e67700" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="a-blue" markerWidth="14" markerHeight="14" refX="11" refY="6" orient="auto">
+      <path d="M1 1 L11 6 L1 11" fill="none" stroke="#1971c2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      .paper { fill: #fffdf8; }
+      .title { font: 700 36px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #1f2937; }
+      .subtitle { font: 400 18px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #4b5563; }
+      .h1 { font: 700 25px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #1f2937; }
+      .h2 { font: 700 19px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #1f2937; }
+      .body { font: 400 16px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #374151; }
+      .small { font: 400 13px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #4b5563; }
+      .mono { font: 650 16px "Cascadia Code", "SFMono-Regular", monospace; fill: #1f2937; }
+      .box { stroke: #1f2937; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; filter: url(#rough); }
+      .green { fill: none; stroke: #2b8a3e; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#a-green); }
+      .orange { fill: none; stroke: #e67700; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#a-orange); }
+      .blue { fill: none; stroke: #1971c2; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#a-blue); }
+      .dashed { stroke-dasharray: 9 7; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" class="paper"/>
+  <path d="M34 32 C390 21 1200 26 1565 37 C1574 244 1570 671 1562 864 C1192 875 390 873 36 862 C26 646 27 248 34 32 Z" fill="none" stroke="#d1d5db" stroke-width="2" filter="url(#rough)"/>
+  <text x="800" y="72" text-anchor="middle" class="title">Where TruePerp leverage comes from</text>
+  <text x="800" y="104" text-anchor="middle" class="subtitle">Borrow → swap → hold physical inventory. One atomic transaction, not recursive loans.</text>
+
+  <!-- Long lane -->
+  <path d="M70 151 Q74 128 99 129 L1503 135 Q1529 137 1528 164 L1524 342 Q1522 368 1495 369 L98 363 Q73 362 70 337 Z" fill="#ebfbee" class="box"/>
+  <text x="105" y="187" class="h1">LONG ETH</text>
+  <text x="105" y="216" class="small">frictionless $100-margin example</text>
+
+  <path d="M88 248 Q91 232 110 232 L290 234 Q309 235 310 253 L308 322 Q307 340 287 340 L109 338 Q91 337 89 319 Z" fill="#fff" stroke="#2b8a3e" stroke-width="2" filter="url(#rough)"/>
+  <text x="199" y="272" text-anchor="middle" class="h2">Trader margin</text>
+  <text x="199" y="307" text-anchor="middle" class="mono">$100 USDC</text>
+
+  <text x="339" y="294" text-anchor="middle" class="h1">+</text>
+
+  <path d="M369 248 Q372 232 391 232 L589 234 Q608 235 609 253 L607 322 Q606 340 586 340 L390 338 Q372 337 370 319 Z" fill="#fff" stroke="#2b8a3e" stroke-width="2" filter="url(#rough)"/>
+  <text x="489" y="270" text-anchor="middle" class="h2">USDC vault lends</text>
+  <text x="489" y="306" text-anchor="middle" class="mono">≈ $900 USDC</text>
+
+  <path d="M616 289 C643 287 658 287 682 289" class="green"/>
+
+  <path d="M694 226 Q699 207 720 208 L934 210 Q956 211 957 233 L955 328 Q953 349 931 350 L718 347 Q697 346 695 325 Z" fill="#e7f5ff" class="box"/>
+  <text x="826" y="250" text-anchor="middle" class="h2">Uniswap v4 pool</text>
+  <text x="826" y="286" text-anchor="middle" class="mono">USDC → WETH</text>
+  <text x="826" y="319" text-anchor="middle" class="small">real swap · actual output</text>
+
+  <path d="M965 289 C992 287 1008 287 1032 289" class="green"/>
+
+  <path d="M1044 215 Q1049 194 1071 195 L1352 198 Q1376 200 1376 224 L1373 334 Q1371 357 1347 358 L1068 355 Q1047 354 1044 331 Z" fill="#d3f9d8" class="box"/>
+  <text x="1210" y="239" text-anchor="middle" class="h2">Physical position in hook</text>
+  <text x="1081" y="280" class="body">holds ≈ $1,000 WETH</text>
+  <text x="1081" y="313" class="body">owes ≈ $900 USDC</text>
+  <text x="1210" y="343" text-anchor="middle" class="small">equity ≈ $100</text>
+
+  <path d="M1393 231 Q1450 207 1500 226" fill="none" stroke="#2b8a3e" stroke-width="7" opacity=".22" filter="url(#rough)"/>
+  <text x="1447" y="270" text-anchor="middle" class="h1">≈ 10x</text>
+  <text x="1447" y="298" text-anchor="middle" class="small">long exposure</text>
+
+  <!-- Short lane -->
+  <path d="M70 406 Q74 383 99 384 L1503 390 Q1529 392 1528 419 L1524 597 Q1522 623 1495 624 L98 618 Q73 617 70 592 Z" fill="#fff9db" class="box"/>
+  <text x="105" y="442" class="h1">SHORT ETH</text>
+  <text x="105" y="471" class="small">same 90% LTV example</text>
+
+  <path d="M88 503 Q91 487 110 487 L290 489 Q309 490 310 508 L308 577 Q307 595 287 595 L109 593 Q91 592 89 574 Z" fill="#fff" stroke="#e67700" stroke-width="2" filter="url(#rough)"/>
+  <text x="199" y="527" text-anchor="middle" class="h2">Trader margin</text>
+  <text x="199" y="562" text-anchor="middle" class="mono">$100 USDC</text>
+
+  <text x="339" y="549" text-anchor="middle" class="h1">+</text>
+
+  <path d="M369 503 Q372 487 391 487 L589 489 Q608 490 609 508 L607 577 Q606 595 586 595 L390 593 Q372 592 370 574 Z" fill="#fff" stroke="#e67700" stroke-width="2" filter="url(#rough)"/>
+  <text x="489" y="525" text-anchor="middle" class="h2">WETH vault lends</text>
+  <text x="489" y="558" text-anchor="middle" class="mono">WETH worth ≈ $900</text>
+
+  <path d="M616 544 C643 542 658 542 682 544" class="orange"/>
+
+  <path d="M694 481 Q699 462 720 463 L934 465 Q956 466 957 488 L955 583 Q953 604 931 605 L718 602 Q697 601 695 580 Z" fill="#e7f5ff" class="box"/>
+  <text x="826" y="505" text-anchor="middle" class="h2">Uniswap v4 pool</text>
+  <text x="826" y="541" text-anchor="middle" class="mono">WETH → USDC</text>
+  <text x="826" y="574" text-anchor="middle" class="small">sale proceeds become collateral</text>
+
+  <path d="M965 544 C992 542 1008 542 1032 544" class="orange"/>
+
+  <path d="M1044 470 Q1049 449 1071 450 L1352 453 Q1376 455 1376 479 L1373 589 Q1371 612 1347 613 L1068 610 Q1047 609 1044 586 Z" fill="#ffec99" class="box"/>
+  <text x="1210" y="494" text-anchor="middle" class="h2">Physical position in hook</text>
+  <text x="1081" y="535" class="body">holds ≈ $1,000 USDC</text>
+  <text x="1081" y="568" class="body">owes WETH worth ≈ $900</text>
+  <text x="1210" y="598" text-anchor="middle" class="small">equity ≈ $100</text>
+
+  <path d="M1393 486 Q1450 462 1500 481" fill="none" stroke="#e67700" stroke-width="7" opacity=".22" filter="url(#rough)"/>
+  <text x="1447" y="525" text-anchor="middle" class="h1">≈ 9x</text>
+  <text x="1447" y="553" text-anchor="middle" class="small">directional short</text>
+
+  <!-- Liquidation lifecycle -->
+  <text x="800" y="682" text-anchor="middle" class="h1">When the position reaches its risk range</text>
+  <path d="M105 732 Q108 715 127 716 L354 718 Q374 719 375 739 L373 813 Q371 832 351 833 L125 830 Q107 829 105 811 Z" fill="#fff" class="box"/>
+  <text x="240" y="755" text-anchor="middle" class="h2">ordinary swap or poke</text>
+  <text x="240" y="790" text-anchor="middle" class="small">no privileged keeper</text>
+
+  <path d="M384 774 C409 772 426 772 450 774" class="blue"/>
+
+  <path d="M462 714 Q466 696 487 697 L718 700 Q740 701 741 723 L739 816 Q737 837 715 838 L485 835 Q464 834 462 813 Z" fill="#e7f5ff" class="box"/>
+  <text x="601" y="741" text-anchor="middle" class="h2">hook executes one due chunk</text>
+  <text x="601" y="776" text-anchor="middle" class="small">long: WETH → USDC</text>
+  <text x="601" y="804" text-anchor="middle" class="small">short: USDC → WETH</text>
+
+  <path d="M750 774 C775 772 792 772 816 774" class="blue"/>
+
+  <path d="M828 714 Q832 696 853 697 L1079 700 Q1101 701 1102 723 L1100 816 Q1098 837 1076 838 L851 835 Q830 834 828 813 Z" fill="#ebfbee" class="box"/>
+  <text x="965" y="741" text-anchor="middle" class="h2">repay matching debt vault</text>
+  <text x="965" y="776" text-anchor="middle" class="small">debt falls with every real swap</text>
+  <text x="965" y="804" text-anchor="middle" class="small">LP donation comes from proceeds</text>
+
+  <path d="M1111 774 C1136 772 1153 772 1177 774" class="blue"/>
+
+  <path d="M1189 714 Q1193 696 1214 697 L1473 700 Q1495 701 1496 723 L1494 816 Q1492 837 1470 838 L1212 835 Q1191 834 1189 813 Z" fill="#fff4e6" class="box"/>
+  <text x="1342" y="741" text-anchor="middle" class="h2">pace, pause, or repeat</text>
+  <text x="1342" y="776" text-anchor="middle" class="small">wait for the next due interval</text>
+  <text x="1342" y="804" text-anchor="middle" class="small">safe-side recovery pauses future chunks</text>
+
+  <text x="800" y="869" text-anchor="middle" class="small">Illustrative frictionless numbers only. Real quotes must leave room for the 0.30% pool fee, price impact, and borrower-adverse admission pricing.</text>
+</svg>
