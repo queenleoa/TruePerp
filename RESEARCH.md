@@ -2,13 +2,14 @@
 
 ## Abstract
 
-TruePerp studies whether a Uniswap v4 pool can be not only the execution venue
-for leveraged exposure, but also the native clock and state source for a gradual
-liquidation process. The proposed instrument is physically represented. In a
-WETH/USDC market, a long holds WETH and owes USDC; a short holds USDC and owes
-WETH. Both positions have no practical fixed expiry. For v0, the supporting
-debt vaults are protocol-seeded and charge zero interest, so elapsed time does
-not change debt or invalidate the fixed opening trigger geometry.
+TruePerp studies an ETH margin product offering **up to 10x exposure**, in
+which a Uniswap v4 pool is not only the execution venue but also the native
+clock and state source for gradual liquidation. The proposed instrument is
+physically represented. In a WETH/USDC market, a long holds WETH and owes USDC;
+a short holds USDC and owes WETH. Both positions have no practical fixed expiry.
+For v0, the supporting debt vaults are protocol-seeded and charge zero interest,
+so elapsed time does not change debt or invalidate the fixed opening trigger
+geometry.
 
 This representation is economically similar to perpetual long and short
 exposure, but it is not a cash-settled perpetual swap. It is isolated margin with
@@ -32,9 +33,10 @@ slippage-bounded force-close if gradual treatment fails.
 
 The narrow question is:
 
-> Can ordinary activity in an AMM advance a bounded, recovery-sensitive
-> liquidation of real leveraged inventory without delegating execution price and
-> timing to a privileged keeper?
+> Can an AMM support useful perpetual leverage—up to 10x in the curated ETH
+> market—while ordinary market activity advances a bounded,
+> recovery-sensitive liquidation of real inventory without delegating
+> execution price and timing to a privileged keeper?
 
 This separates into five testable subproblems:
 
@@ -97,6 +99,62 @@ as well as base bought with borrowed quote. For a short, directional exposure
 is the borrowed base; the quote collateral also contains the sale proceeds.
 Accordingly, interfaces should display both LTV and directional exposure divided
 by equity rather than relying on an ambiguous single “leverage” number.
+
+More precisely,
+
+$$
+\lambda_L=\frac{PC_b}{Q_L}=\frac{1}{1-\ell_L},
+\qquad
+\lambda_S=\frac{PD_b}{Q_S}=\frac{\ell_S}{1-\ell_S}.
+$$
+
+The recommended major-asset configuration sets the WETH/USDC liquidation
+threshold to 95%. The inherited kernel admits a new position at no more than
+95% of that threshold, so the maximum opening LTV is 90.25%. Before execution
+costs, this implies a 10.26x maximum long and a 9.26x maximum directional short.
+The product can therefore state **up to 10x ETH leverage**, provided it does not
+imply that a short has an identical 10x limit.
+
+The canonical router enforces the 95% LT ceiling on every product opening. The
+generic inherited hook entry remains publicly reachable in v0 and is treated as
+a documented prototype bypass rather than an alternative TruePerp market path.
+
+| WETH/USDC risk quantity | Recommended value |
+|---|---:|
+| Soft-liquidation threshold | 95% |
+| Opening LTV cap | 90.25% |
+| Theoretical long limit | 10.26x |
+| Theoretical directional-short limit | 9.26x |
+| Adverse move to soft liquidation at the cap | approximately -5% long / +5.26% short |
+
+Pool fees and price impact do not disappear from this calculation. The router
+records the actual output, and the admission check uses a borrower-adverse
+pool-local price. Those controls reduce the execution-safe notional obtainable
+from a fixed margin deposit; they do not create fictitious equity.
+
+### 2.4 Atomic physical leverage
+
+TruePerp promotes TrueLend's leverage route from an optional periphery into the
+main product path. Conceptually, leverage is created by supplying margin,
+borrowing the other token, swapping the borrowed value into the held token, and
+depositing the complete held amount. The router executes those operations in a
+single PoolManager unlock:
+
+```mermaid
+flowchart LR
+    M[USDC margin] --> R[TruePerp router]
+    QV[USDC vault] -->|borrow for long| R
+    BV[WETH vault] -->|borrow for short| R
+    R -->|margin + USDC debt| L[buy WETH]
+    R -->|WETH debt| S[sell WETH]
+    L --> LP[long: WETH held / USDC owed]
+    S --> SP[short: USDC held / WETH owed]
+```
+
+This atomic route is economically equivalent to the familiar repeated
+deposit-borrow-swap loop, but it leaves one collateral balance and one debt
+balance rather than a recursive stack of loans. Every intermediate PoolManager
+balance must settle or the opening reverts.
 
 ## 3. Why physical representation changes counterparty risk
 
@@ -354,11 +412,13 @@ to capture.
 
 ### 11.6 Prototype access and trigger capacity
 
-The canonical router is a product convention rather than an enforced boundary.
-The inherited public `open` function can bypass market activation,
-quote-denominated margin construction, deadlines, and router slippage policy.
-In addition, only 32 positions may share an aligned trigger tick, while the
-default minimum borrow is effectively one raw token unit. An attacker can scale
+The canonical router does enforce the 95% LT product ceiling on every opening,
+including when the inherited hook configuration is higher. It is not, however,
+an exclusive authorization boundary. The inherited public `open` function can
+bypass that ceiling as well as market activation, quote-denominated margin
+construction, deadlines, and router slippage policy. In addition, only 32
+positions may share an aligned trigger tick, while the default minimum borrow
+is effectively one raw token unit. An attacker can scale
 a common collateral/debt ratio down to dust and occupy a popular trigger bucket,
 denying later openings at that boundary. Production work requires an authorized
 opening surface, economically normalized minimum sizes, and a trigger design
@@ -402,26 +462,36 @@ execution drag, LP donation, keeper reward, and bad debt.
 A credible hackathon demonstration uses one curated WETH/USDC pool and two
 protocol-prefunded debt vaults. It should show:
 
-1. atomic creation of a WETH-held/USDC-debt long and a USDC-held/WETH-debt short;
-2. debt remaining constant across a long time warp, preserving the fixed
+1. the 95% major-asset LT policy, its 90.25% admission cap, and the resulting
+   10.26x long / 9.26x directional-short theoretical limits;
+2. atomic creation of a WETH-held/USDC-debt long and a USDC-held/WETH-debt short;
+3. debt remaining constant across a long time warp, preserving the fixed
    opening trigger ticks with no funding transfer;
-3. an ordinary swap crossing a long or short risk boundary;
-4. the hook's real liquidation swap and the corresponding PoolManager deltas;
-5. donation to in-range LPs and repayment to the correct debt vault;
-6. recovery pausing later chunks while preserving remaining collateral;
-7. `poke` advancing the same per-chunk engine in a quiet pool, with its larger
+4. an ordinary swap crossing a long or short risk boundary;
+5. the hook's real liquidation swap and the corresponding PoolManager deltas;
+6. donation to in-range LPs and repayment to the correct debt vault;
+7. recovery pausing later chunks while preserving remaining collateral;
+8. `poke` advancing the same per-chunk engine in a quiet pool, with its larger
    work budget and charge-funded reward; and
-8. a price-limited force-close that partially fills, retries, and records any
+9. a price-limited force-close that partially fills, retries, and records any
    final shortfall against the originating vault.
+
+A 5x position remains the clearest default trace because it leaves enough price
+runway to observe several liquidation chunks. A separate near-limit trace
+should demonstrate that leverage is genuinely enforced by post-swap LTV rather
+than being a presentation-only multiplier. The near-limit UI setting should
+leave room for fees and price impact instead of assuming the frictionless
+10.26x boundary is always executable.
 
 The appropriate claim is not “a conventional perp without an oracle.” It is:
 
 > an AMM-native, expiry-free margin protocol in which ordinary pool activity
 > advances gradual liquidation of real spot inventory against real debt.
 
-The current repository verification passes all 16 root TruePerp tests and all
-94 inherited TrueLend tests. These results validate the tested implementation
-paths, not production safety or economic calibration.
+The root TruePerp suite includes explicit near-limit leverage and major-asset
+policy coverage alongside its position and liquidation scenarios. The inherited
+TrueLend engine has its own broader suite. Passing results validate the tested
+implementation paths, not production safety or economic calibration.
 
 ## References
 

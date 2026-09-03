@@ -33,8 +33,9 @@ contract TruePerpHook is TrueLendHook {
     {}
 
     /// @notice Set the longest representable horizon (~136 years), used by the
-    /// prototype as its no-scheduled-expiry sentinel. All other risk fields stay
-    /// unchanged and remain configurable through setConfig.
+    /// prototype as its no-scheduled-expiry sentinel. The canonical router owns
+    /// TruePerp's major-asset LT policy; all other inherited risk fields remain
+    /// configurable through setConfig.
     function configurePerpetual(PoolId poolId) external onlyOwner {
         configs[poolId].termSeconds = type(uint32).max;
     }

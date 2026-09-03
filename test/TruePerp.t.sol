@@ -201,6 +201,7 @@ contract TruePerpTest is Test, Deployers {
         assertTrue(active);
         assertTrue(baseIs0);
         assertEq(hook.getConfig(poolId).termSeconds, type(uint32).max);
+        assertEq(router.PERP_MAX_LT_BPS(), 9500, "canonical route exposes the major-asset LT policy");
         assertEq(baseVault.baseRateBps(), 0);
         assertEq(baseVault.slope1Bps(), 0);
         assertEq(baseVault.slope2Bps(), 0);
@@ -209,6 +210,18 @@ contract TruePerpTest is Test, Deployers {
         assertEq(baseVault.utilCapBps(), 9000);
         assertEq(quoteVault.rateBps(10_000), 0);
         assertLe(address(hook).code.length, 24_576, "hook must remain deployable under EIP-170");
+    }
+
+    function test_configurePerpetualDoesNotChangeStricterHookCap() public {
+        TrueLendHook.Config memory config = hook.getConfig(poolId);
+        config.maxLtBps = 9000;
+        hook.setConfig(poolId, config);
+
+        hook.configurePerpetual(poolId);
+
+        config = hook.getConfig(poolId);
+        assertEq(config.maxLtBps, 9000);
+        assertEq(config.termSeconds, type(uint32).max);
     }
 
     function test_marketCanOrientBaseAsCurrency1() public {
@@ -297,6 +310,9 @@ contract TruePerpTest is Test, Deployers {
         TrueLendHook.Position memory position = hook.getPosition(longId);
         assertFalse(position.collateralIs0, "BASE long collateral is currency1");
         assertApproxEqAbs(hook.debtOf(longId), BORROW, 1);
+        TruePerpRouter.PositionMetrics memory metrics = router.getPositionMetrics(reverseKey, longId);
+        assertTrue(metrics.isLong, "metrics respect BASE-as-currency1 orientation");
+        assertGt(metrics.collateralValueQuote, metrics.debtValueQuote);
         router.closePosition(
             TruePerpRouter.CloseParams({
                 key: reverseKey,
@@ -322,6 +338,9 @@ contract TruePerpTest is Test, Deployers {
         position = hook.getPosition(shortId);
         assertTrue(position.collateralIs0, "QUOTE short collateral is currency0");
         assertApproxEqAbs(hook.debtOf(shortId), BORROW, 1);
+        metrics = router.getPositionMetrics(reverseKey, shortId);
+        assertFalse(metrics.isLong, "metrics respect BASE-as-currency1 orientation");
+        assertGt(metrics.collateralValueQuote, metrics.debtValueQuote);
         router.closePosition(
             TruePerpRouter.CloseParams({
                 key: reverseKey,
@@ -422,6 +441,13 @@ contract TruePerpTest is Test, Deployers {
         assertGt(position.collateral, 2e18, "roughly 2.45 WETH held at $2,000");
         assertLt(position.collateral, 3e18);
         assertApproxEqAbs(hook.debtOf(id), 3900e6, 1, "USDC debt keeps six-decimal units");
+        TruePerpRouter.PositionMetrics memory longMetrics = router.getPositionMetrics(realisticKey, id);
+        assertTrue(longMetrics.isLong);
+        assertGt(longMetrics.collateralValueQuote, longMetrics.debtValueQuote);
+        assertGt(longMetrics.equityQuote, 900e6, "mixed-decimal long equity is returned in USDC units");
+        assertLt(longMetrics.equityQuote, 1200e6);
+        assertGt(longMetrics.leverageBps, 40_000);
+        assertLt(longMetrics.leverageBps, 60_000);
 
         router.closePosition(
             TruePerpRouter.CloseParams({
@@ -450,6 +476,13 @@ contract TruePerpTest is Test, Deployers {
         assertGt(position.collateral, 4500e6, "USDC collateral includes sale proceeds and margin");
         assertLt(position.collateral, 5100e6);
         assertApproxEqAbs(hook.debtOf(shortId), 2e18, 1, "WETH debt keeps eighteen-decimal units");
+        TruePerpRouter.PositionMetrics memory shortMetrics = router.getPositionMetrics(realisticKey, shortId);
+        assertFalse(shortMetrics.isLong);
+        assertGt(shortMetrics.collateralValueQuote, shortMetrics.debtValueQuote);
+        assertGt(shortMetrics.equityQuote, 900e6, "mixed-decimal short equity is returned in USDC units");
+        assertLt(shortMetrics.equityQuote, 1200e6);
+        assertGt(shortMetrics.leverageBps, 30_000);
+        assertLt(shortMetrics.leverageBps, 50_000);
 
         router.closePosition(
             TruePerpRouter.CloseParams({
@@ -492,6 +525,115 @@ contract TruePerpTest is Test, Deployers {
     }
 
     // ---------------------------------------------------------------- physical positions
+
+    function test_nearTenTimesLongUsesActualPositionValue() public {
+        // Keep the trade small relative to pool depth so this test measures the
+        // leverage construction rather than deliberately exercising price impact.
+        uint256 margin = 10e18;
+        uint256 borrow = 875e17;
+        vm.prank(alice);
+        bytes32 id = router.openPosition(
+            TruePerpRouter.OpenParams({
+                key: poolKey,
+                isLong: true,
+                margin: margin,
+                borrowAmount: borrow,
+                liquidationThresholdBps: LT_BPS,
+                minSwapOutput: 90e18,
+                sqrtPriceLimitX96: 0,
+                deadline: block.timestamp
+            })
+        );
+
+        TruePerpRouter.PositionMetrics memory metrics = router.getPositionMetrics(poolKey, id);
+        assertTrue(metrics.isLong);
+        assertEq(metrics.directionalNotionalQuote, metrics.collateralValueQuote);
+        assertApproxEqRel(metrics.leverageBps, 100_000, 0.02e18, "actual long leverage is approximately 10x");
+        assertLt(metrics.ltvBps, 9025, "actual opening LTV remains below 95% of LT");
+        assertApproxEqAbs(hook.debtOf(id), borrow, 1);
+    }
+
+    function test_sameBorrowProducesAboutNineTimesDirectionalShort() public {
+        uint256 margin = 10e18;
+        uint256 borrow = 875e17;
+        vm.prank(bob);
+        bytes32 id = router.openPosition(
+            TruePerpRouter.OpenParams({
+                key: poolKey,
+                isLong: false,
+                margin: margin,
+                borrowAmount: borrow,
+                liquidationThresholdBps: LT_BPS,
+                minSwapOutput: 80e18,
+                sqrtPriceLimitX96: 0,
+                deadline: block.timestamp
+            })
+        );
+
+        TruePerpRouter.PositionMetrics memory metrics = router.getPositionMetrics(poolKey, id);
+        assertFalse(metrics.isLong);
+        assertEq(metrics.directionalNotionalQuote, metrics.debtValueQuote);
+        assertApproxEqRel(metrics.leverageBps, 90_000, 0.02e18, "physical short directional leverage is ~9x");
+        assertLt(metrics.ltvBps, 9025);
+        assertApproxEqAbs(hook.debtOf(id), borrow, 1);
+    }
+
+    function test_longAboveOpeningHeadroomReverts() public {
+        vm.prank(alice);
+        vm.expectRevert(TrueLendHook.LtvTooHigh.selector);
+        router.openPosition(
+            TruePerpRouter.OpenParams({
+                key: poolKey,
+                isLong: true,
+                margin: MARGIN,
+                borrowAmount: 900e18,
+                liquidationThresholdBps: LT_BPS,
+                minSwapOutput: 900e18,
+                sqrtPriceLimitX96: 0,
+                deadline: block.timestamp
+            })
+        );
+    }
+
+    function test_shortAboveOpeningHeadroomReverts() public {
+        vm.prank(bob);
+        vm.expectRevert(TrueLendHook.LtvTooHigh.selector);
+        router.openPosition(
+            TruePerpRouter.OpenParams({
+                key: poolKey,
+                isLong: false,
+                margin: MARGIN,
+                borrowAmount: 900e18,
+                liquidationThresholdBps: LT_BPS,
+                minSwapOutput: 800e18,
+                sqrtPriceLimitX96: 0,
+                deadline: block.timestamp
+            })
+        );
+    }
+
+    function test_openRejectsLtAbovePerpetualMarketCap() public {
+        // Even if the inherited administrator surface raises the underlying
+        // hook cap, the canonical TruePerp route keeps its advertised policy.
+        TrueLendHook.Config memory config = hook.getConfig(poolId);
+        config.maxLtBps = 9900;
+        hook.setConfig(poolId, config);
+
+        vm.prank(alice);
+        vm.expectRevert(TruePerpRouter.LtExceedsPerpetualMarketPolicy.selector);
+        router.openPosition(
+            TruePerpRouter.OpenParams({
+                key: poolKey,
+                isLong: true,
+                margin: MARGIN,
+                borrowAmount: BORROW,
+                liquidationThresholdBps: 9501,
+                minSwapOutput: 370e18,
+                sqrtPriceLimitX96: 0,
+                deadline: block.timestamp
+            })
+        );
+    }
 
     function test_openLongHoldsBaseAndOwesQuote() public {
         uint256 aliceQuoteBefore = quote.balanceOf(alice);

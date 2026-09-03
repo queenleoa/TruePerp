@@ -9,6 +9,13 @@ TrueLend's defining mechanism: liquidation is an active, gradual swap process
 driven by Uniswap v4 callbacks. Swap fees accrue along the execution path, and
 liquidity active after a chunk receives the separate liquidation donation.
 
+The primary product capability is **up to 10x ETH leverage**. Under the
+recommended WETH/USDC major-asset profile, a 95% soft-liquidation threshold and
+the inherited 95% opening headroom produce a 90.25% admission cap. That cap is
+10.26x theoretical long leverage and 9.26x theoretical directional-short
+leverage before execution costs; the product headline does not imply identical
+limits for both directions.
+
 The shipped v0 deliberately uses zero-rate debt vaults. Fixed debt keeps the
 opening liquidation ticks valid and isolates the swap-driven liquidation
 mechanism from the separate research problem of maintaining debt-aware trigger
@@ -23,15 +30,17 @@ TruePerp asks:
 > whose unsafe exposure is unwound gradually by the market's own activity,
 > without an external price oracle or privileged liquidation keeper?
 
-The design follows four principles:
+The design follows five principles:
 
-1. **Physical representation.** Every long or short is reducible to collateral
+1. **Useful leverage.** The curated ETH market supports an execution-aware
+   product envelope of up to 10x rather than treating borrowing as incidental.
+2. **Physical representation.** Every long or short is reducible to collateral
    held by the hook and debt owed to a single-asset vault.
-2. **Venue consistency.** The attached pool supplies observations, triggers,
+3. **Venue consistency.** The attached pool supplies observations, triggers,
    entry and exit execution, and liquidation execution.
-3. **Active gradual liquidation.** Unsafe collateral is swapped in bounded,
+4. **Active gradual liquidation.** Unsafe collateral is swapped in bounded,
    time-paced chunks; liquidation is not a bookkeeping mark.
-4. **Explicit risk ownership.** Trader equity is first loss, and the isolated
+5. **Explicit risk ownership.** Trader equity is first loss, and the isolated
    vault that lent the debt asset bears any remaining credit loss.
 
 TruePerp does not target cross-margin, arbitrary synthetic indexes, or
@@ -152,9 +161,9 @@ and debt.
 `TruePerpHook` directly inherits the TrueLend kernel. Consequently, the
 lower-level `open` entrypoint remains public in v0 and is not restricted to the
 router. A direct caller can bypass router activation, quote-margin construction,
-and the router's market semantics, including in an activated pool. This is a
-known prototype limitation: the router is the canonical product path, but it is
-not yet an enforced authorization boundary.
+the 95% LT policy, and the router's other market semantics, including in an
+activated pool. This is a known prototype limitation: the router is the
+canonical product path, but it is not yet an enforced authorization boundary.
 
 Any additional pool initialized with the hook receives its own pair of isolated
 vaults through the inherited initialization callback. Unless the owner activates
@@ -291,6 +300,47 @@ The asymmetry is physical: a long converts the trader's own USDC plus borrowed
 USDC into base exposure, while a short's directional exposure is the borrowed
 base sold. A five-times long therefore opens near 80% LTV; a five-times short
 opens near 83.33% LTV before fees and price impact.
+
+For the recommended WETH/USDC major-asset policy,
+
+$$
+h=95\%,
+\qquad
+\mathrm{LT}=95\%,
+\qquad
+\mathrm{LTV}_{open,max}=h\mathrm{LT}=90.25\%.
+$$
+
+Therefore,
+
+| Direction | Theoretical maximum before execution costs | Advertised tier |
+|---|---:|---|
+| Long ETH | 10.26x | up to 10x |
+| Short ETH | 9.26x directional | up to approximately 9x |
+
+At the exact cap, the soft-liquidation boundary is approximately a 5% adverse
+move away for a long and a 5.26% adverse move away for a short. The 10x tier is
+therefore inseparable from the gradual-liquidation design: it deliberately
+enters risk management early instead of waiting for zero equity.
+
+This policy is enforced by the canonical router's hard 95% LT ceiling and the
+inherited opening-LTV check; no separate leverage multiplier is stored. The
+router supplies margin and a borrow amount, then the hook recomputes LTV from
+actual collateral, actual debt, and the borrower-adverse price. A request that
+execution makes too risky reverts. The inherited raw `hook.open` remains a
+documented prototype bypass and is not the TruePerp product interface.
+
+For display, the router exposes current collateral value, debt value, equity,
+LTV, directional notional, and directional leverage. Those metrics use current
+pool spot and actual stored balances. They are deliberately separate from the
+hook's conservative admission valuation.
+
+Ignoring costs, quote margin $M_q$ produces a target long leverage
+$\lambda_L$ with $D_q=(\lambda_L-1)M_q$. A target short leverage $\lambda_S$
+requires base debt with quote value $PD_b=\lambda_S M_q$. The difference must
+be reflected in any leverage-selection interface: reusing the same debt-to-
+margin ratio produces a long whose displayed leverage is one turn higher than
+the short.
 
 ## 6. Price and execution model
 
@@ -616,12 +666,17 @@ execution bound and donation-capture incentives require adversarial testing.
 
 ## 14. Hackathon parameter profile
 
-The demo should prefer observable behavior over maximum leverage:
+The demo should show both an understandable default and the real product
+envelope:
 
 | Parameter | Demo direction |
 |---|---|
 | Market | one WETH/USDC pool |
-| Demo leverage selection | approximately 3–5×; not an enforced maximum or security cap |
+| Market LT policy | canonical router rejects every request above 95% |
+| Opening cap | 90.25% LTV from 95% headroom × 95% LT |
+| Product envelope | 10.26x theoretical long; 9.26x theoretical directional short before execution costs |
+| Default demo preset | 5x, chosen to make several gradual-liquidation chunks visible |
+| Near-limit demo | execution-buffered position below the frictionless cap; report realized leverage |
 | Borrow amount | capped by admission LTV, vault cash, and the hard utilization ceiling; not by range depth |
 | Liquidation cadence | visible multi-step decay over several swaps |
 | Chunks per callback | small fixed constant |
@@ -631,37 +686,44 @@ The demo should prefer observable behavior over maximum leverage:
 | Terminal execution | bounded price movement with partial-fill retry |
 | Carry | zero borrow rate and no funding ledger in v0 |
 
-These are design directions, not calibrated production values. Tests and a
-small path simulation should justify the exact numbers used in the demo. A
-position-size admission cap tied to range depth is a recommended extension; the
-implemented depth constraint applies to each liquidation chunk.
+The 95% LT is the recommended major-asset policy inherited from TrueLend's risk
+framework, not a claim of production calibration. The kernel can represent
+higher generic LTs, but the canonical TruePerp router does not expose them for
+the curated ETH market. Tests and a small path simulation should justify the
+execution buffer used near the limit. A position-size admission cap tied to
+range depth is a recommended extension; the implemented depth constraint
+applies to each liquidation chunk.
 
 ## 15. Test status and required properties
 
-The root suite contains 16 TruePerp integration tests. The inherited TrueLend
-engine has 94 tests in its own project; a root `forge test` does not substitute
-for running that suite when the kernel changes. Together, the suites should
-establish the following properties:
+The root suite contains TruePerp integration tests, including explicit
+near-limit leverage and LT-policy coverage. The inherited TrueLend engine has
+its own broader suite; a root `forge test` does not substitute for running that
+suite when the kernel changes. Together, the suites should establish the
+following properties:
 
 1. Long entry borrows USDC, swaps it for WETH, and leaves the hook holding the
    recorded WETH collateral.
 2. Short entry borrows WETH, swaps it for USDC, and leaves the hook holding the
    recorded USDC collateral.
-3. An ordinary swap crossing a trigger can cause a bounded nested liquidation
+3. The canonical WETH/USDC router rejects requested LT above 95%, and the
+   opening check accepts direction-correct high leverage below 90.25% LTV while
+   rejecting positions above it after actual execution.
+4. An ordinary swap crossing a trigger can cause a bounded nested liquidation
    swap in the same transaction.
-4. A long chunk sells WETH and repays only the USDC vault; a short chunk buys
+5. A long chunk sells WETH and repays only the USDC vault; a short chunk buys
    WETH and repays only the WETH vault.
-5. The liquidation donation accrues to active Uniswap LPs, while a poke reward
+6. The liquidation donation accrues to active Uniswap LPs, while a poke reward
    is carved from—not added on top of—the penalty.
-6. Collateral, PoolManager deltas, repayments, donations, rewards, and returned
+7. Collateral, PoolManager deltas, repayments, donations, rewards, and returned
    surplus conserve both tokens.
-7. A safe-side range exit pauses processing, and a later adverse boundary
+8. A safe-side range exit pauses processing, and a later adverse boundary
    crossing re-enqueues the position.
-8. A zero-liquidity or price-limit condition cannot invent proceeds or erase
+9. A zero-liquidity or price-limit condition cannot invent proceeds or erase
    debt; partial work remains retryable.
-9. The v0 factory deploys zero-rate vaults, and merely advancing time does not
+10. The v0 factory deploys zero-rate vaults, and merely advancing time does not
    change position debt or move the economic liquidation boundary.
-10. Uncovered debt reduces only the vault that originated it, applying any
+11. Uncovered debt reduces only the vault that originated it, applying any
     recorded reserve before support capital.
 
 Fuzz and invariant tests should vary token decimals, token ordering, swap
@@ -674,14 +736,17 @@ design and must be paired with trigger re-registration tests.
 A persuasive demo follows one position end to end:
 
 1. seed WETH/USDC spot liquidity and capitalize both debt vaults;
-2. open a five-times ETH long and show its WETH collateral and USDC debt;
-3. move ETH downward with an ordinary pool swap until the range is crossed;
-4. show the hook execute one small WETH-to-USDC chunk in the same transaction;
-5. show the LP donation, USDC debt repayment, and improved position LTV;
-6. repeat across several swaps to visualize gradual decay;
-7. move price out through the safe-side boundary and show liquidation pause with
+2. show the 95% LT, 90.25% opening-LTV cap, and direction-specific theoretical
+   limits behind the up-to-10x headline;
+3. open a five-times ETH long and show its WETH collateral and USDC debt;
+4. move ETH downward with an ordinary pool swap until the range is crossed;
+5. show the hook execute one small WETH-to-USDC chunk in the same transaction;
+6. show the LP donation, USDC debt repayment, and improved position LTV;
+7. repeat across several swaps to visualize gradual decay;
+8. move price out through the safe-side boundary and show liquidation pause with
    remaining WETH intact; and
-8. run the mirrored short path, where USDC buys WETH to repay the base vault.
+9. run a separate execution-buffered near-limit long and mirrored short path,
+   reporting actual collateral, LTV, and leverage after pool costs.
 
 The demo's central observation should be visible from token balances, not only
 events: liquidation exchanges real collateral, repays real debt, and donates to
@@ -690,8 +755,9 @@ track liquidity traversed during execution.
 
 ## 17. Conclusion
 
-TruePerp is an expiry-free, pool-native margin market. Its perpetual exposure is
-physical: hold the appreciating asset and owe the financing asset for a long;
+TruePerp is an expiry-free, pool-native ETH margin market offering up to 10x
+leverage. Its perpetual exposure is physical: hold the appreciating asset and
+owe the financing asset for a long;
 hold sale proceeds and owe the underlying for a short. That representation
 removes the need for an unhedged cash house and makes liquidation the same
 operation as TrueLend's core insight—an active, paced conversion through the

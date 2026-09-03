@@ -9,6 +9,13 @@ actual WETH/USDC pool swaps. The v0 supporting vaults are protocol-seeded and
 charge zero borrow interest. There is no marked cash-PnL liability, borrow
 carry, or long-short funding ledger.
 
+Leverage is the primary product parameter. For WETH/USDC, the recommended
+major-asset policy sets the liquidation threshold to 95%. Together with the
+implemented 95% opening headroom, this caps admission at 90.25% LTV: 10.26x
+theoretical long leverage and 9.26x theoretical directional-short leverage
+before execution costs. The user-facing summary is **up to 10x ETH leverage**;
+the direction-specific figures remain normative for quotes and tests.
+
 Values marked **prototype** are inherited from the current TrueLend liquidation
 kernel or fixed by `PerpLendingVaultFactory`. Values marked **illustrative** are
 useful for a hackathon trace but are not empirically calibrated production
@@ -39,6 +46,9 @@ math remains in native units.
 | $Q_L,Q_S$ | long and short equity in quote units |
 | $\ell_L,\ell_S$ | long and short loan-to-value ratio |
 | $\mathrm{LT}$ | soft-liquidation LTV threshold |
+| $h_o$ | opening headroom applied to $\mathrm{LT}$ |
+| $H=h_o\mathrm{LT}$ | maximum opening LTV |
+| $\lambda_L,\lambda_S$ | long and short directional leverage |
 | $\ell_a$ | analytical LTV benchmark used to estimate cumulative reduction |
 | $t_s,t_f$ | soft-start and far-boundary ticks |
 | $C$ | remaining collateral in its native token for a generic position |
@@ -116,6 +126,21 @@ a short's directional base exposure is only its base debt. At 80% LTV, the long
 has 5× delta leverage and the short has 4× delta leverage. A 5× short requires
 approximately 83.33% LTV before execution cost.
 
+Ignoring execution costs, quote margin $M_q$ maps a selected directional
+leverage to debt as follows:
+
+$$
+D_q=(\lambda_L-1)M_q,
+\qquad
+P D_b=\lambda_S M_q.
+$$
+
+Thus a 10x long borrows approximately 9 units of USDC for each unit of USDC
+margin. A 9x short borrows WETH worth approximately 9 units of USDC for each
+unit of margin. The asymmetry is why the router or frontend should solve from a
+target leverage and direction rather than reuse one borrow-to-margin ratio for
+both.
+
 ## 4. Admission
 
 Let $P_f$ be the pool-local filtered price and $P_s$ live spot. Admission uses
@@ -150,6 +175,75 @@ The final condition is part of the target risk policy and must not be claimed as
 implemented until it is enforced in the contracts. The preceding debt minimum
 is also only nominal in the shipped defaults: `minBorrow` is zero, so the hard
 check rejects zero but accepts one raw token unit.
+
+For the recommended WETH/USDC major-asset profile,
+
+$$
+H=h_o\mathrm{LT}=0.95(0.95)=0.9025.
+$$
+
+The resulting leverage limits are
+
+$$
+\lambda_{L,max}=\frac{1}{1-H}=10.2564\times,
+\qquad
+\lambda_{S,max}=\frac{H}{1-H}=9.2564\times.
+$$
+
+At $H=90.25\%$ and $\mathrm{LT}=95\%$, the adverse price distance from opening
+to soft liquidation is
+
+$$
+1-\frac{H}{\mathrm{LT}}=5\%
+$$
+
+for a long, and
+
+$$
+\frac{\mathrm{LT}}{H}-1\approx5.2632\%
+$$
+
+for a short. These are frictionless geometric distances at the cap. An
+execution-buffered position opens farther from the boundary.
+
+| LT configuration | Opening LTV cap $H$ | Long limit | Directional-short limit | Interpretation |
+|---:|---:|---:|---:|---|
+| 90% | 85.50% | 6.90x | 5.90x | lower-risk illustrative profile |
+| **95%** | **90.25%** | **10.26x** | **9.26x** | recommended WETH/USDC major-asset profile |
+| 99% | 94.05% | 16.81x | 15.81x | kernel default ceiling; not recommended for ETH |
+| 99.5% | 94.525% | 18.26x | 17.26x | inherited absolute bound; not a product tier |
+
+The canonical TruePerp router caps every WETH/USDC opening at LT 95%, even if an
+administrator later raises the generic hook configuration. The larger inherited
+kernel values describe generic configurability, not advertised ETH leverage.
+The lower-level inherited `hook.open` remains public in this prototype and can
+bypass the router policy; it is explicitly outside the canonical product path.
+
+### 4.1 Execution-adjusted borrowing
+
+The limits above are post-trade LTV identities. They do not mean a frictionless
+borrow formula will survive real execution. Let $k\le1$ be actual swap-output
+value at the admission price divided by swap-input value. For a deposit $M_q$
+and opening cap $H$, the maximum held long notional and short borrowed notional
+per unit of deposited margin are
+
+$$
+\frac{V_{long}}{M_q}\le\frac{k}{1-Hk},
+\qquad
+\frac{P D_b}{M_q}\le\frac{H}{1-Hk}.
+$$
+
+At $H=90.25\%$, a 30-basis-point cost with negligible additional impact
+($k=0.997$) gives approximately 9.95 units of long inventory or 9.01 units of
+short borrowed notional per unit of deposited margin. Larger trades receive a
+pool-dependent result. The route must therefore quote actual execution, apply
+the borrower-adverse admission price, and leave a buffer below the theoretical
+boundary. A fixed `borrowAmount` is not equivalent to guaranteed leverage.
+
+The implemented router view reports current spot-marked leverage and LTV from
+actual position balances. It is suitable for display after entry, but it is not
+the admission calculation: opening safety continues to use the hook's
+borrower-adverse pool-local price.
 
 ## 5. Liquidation boundaries
 
@@ -397,15 +491,16 @@ compensate that capital; this is an explicit scope limitation.
 
 ## 10. Prototype liquidation configuration
 
-The inherited kernel currently exposes the following defaults. They are useful
-for reproducibility, not endorsements:
+The current TruePerp composition uses the following product policy and inherited
+kernel defaults. They are useful for reproducibility, not endorsements:
 
 | Parameter | Prototype value | Interpretation |
 |---|---:|---|
 | range width | 3,466 ticks | about a $\sqrt{2}$ price factor |
 | minimum admission gap | 100 ticks | about 1% from post-route spot |
-| default maximum selectable LT | 99% | initialization default, not demo recommendation |
-| hard configurable LT upper bound | 99.5% | enforced by `setConfig` |
+| inherited pre-specialization max LT | 99% | generic kernel initialization value |
+| Canonical TruePerp WETH/USDC max LT | 95% | enforced by `TruePerpRouter` on every opening |
+| generic kernel LT upper bound | 99.5% | inherited `setConfig` bound; not a TruePerp ETH tier |
 | borrow rate at every utilization | 0% | fixed by `PerpLendingVaultFactory` |
 | interest reserve factor | 0% | no reserve accrual in v0 |
 | hard new-borrow utilization cap | 90% | remains active despite zero rate |
@@ -417,7 +512,7 @@ for reproducibility, not endorsements:
 | catch-up cap $a_{max}$ | 5× | limits elapsed-time acceleration |
 | `poke`/force-close caller reward | 10 bps of output | carved from the liquidation charge |
 | force-close tick limit | 1,000 ticks | roughly 10% adverse price movement |
-| perpetual horizon sentinel | `uint32.max` seconds | no practical scheduled expiry; finite encoding |
+| perpetual horizon sentinel | `uint32.max` seconds | set independently by `configurePerpetual`; no practical scheduled expiry |
 
 The observation ring also stores 32-bit timestamps. It wraps in 2106, earlier
 than a position opened today reaches the term sentinel, so a long-lived
@@ -483,8 +578,35 @@ P_{start,S}=\frac{0.90(12{,}500)}{4}=2{,}812.50,
 P_{bank,S}=3{,}125.
 $$
 
-The examples explain why “3–5× leverage” must name the direction and leverage
+The examples explain why every leverage label must name the direction and
 definition.
+
+### 11.3 Up-to-10x major-market envelope
+
+For the recommended $\mathrm{LT}=95\%$ profile, the opening cap is 90.25% LTV.
+Ignoring execution costs, a 10x long with 2,500 USDC margin borrows 22,500 USDC
+and holds 25,000 USDC of WETH value. Its 90% LTV lies just inside the cap:
+
+$$
+\lambda_L=10\times,
+\qquad
+\ell_L=\frac{22{,}500}{25{,}000}=90\%.
+$$
+
+A 9x short with the same margin borrows 22,500 USDC worth of WETH. After selling
+it, the position holds 25,000 USDC and also opens at 90% LTV:
+
+$$
+\lambda_S=9\times,
+\qquad
+\ell_S=\frac{22{,}500}{25{,}000}=90\%.
+$$
+
+These frictionless examples leave only 25 basis points of LTV room. They are
+useful for explaining the product limit but are not safe fixed router inputs:
+fees and price impact can move the realized position above 90.25% and cause
+admission to revert. An execution-aware quote should target a lower borrow
+amount while reporting the realized post-route leverage.
 
 ## 12. Illustrative long liquidation
 
@@ -560,8 +682,11 @@ For an understandable demonstration, use:
 - one curated WETH/USDC pool with visible, persistent wide-range liquidity;
 - both debt vaults prefunded by the protocol and kept well below their 90%
   utilization cap;
-- a 90% soft LT with opening LTV near 80%, rather than the 99% default maximum;
-- explicit display of long and short directional leverage;
+- a 95% major-asset soft LT, enforced on every canonical router opening;
+- an easy-to-follow 5x default position plus a separate execution-buffered
+  near-limit trace supporting the up-to-10x headline;
+- explicit display of realized LTV, long or short directional leverage, and the
+  relevant 10.26x/9.26x theoretical limit;
 - 60-second base chunk cadence, 100 target chunks, and a 1% depth cap;
 - deadlines and strict output/price bounds for trader routes;
 - the inherited pool-local observation filter warmed before admission; and
@@ -615,7 +740,7 @@ For each candidate pool and parameter set, report:
 No LT, range width, or leverage tier is production-ready until those results are
 evaluated out of sample.
 
-The current verification baseline is 16 passing root TruePerp tests and 94
-passing inherited TrueLend tests, with no failures. The inherited suite validates
-the reused kernel generally; the root suite validates the v0 composition,
-including constant debt under time warp.
+The root TruePerp suite covers leverage policy and metrics as well as the v0
+composition, including constant debt under time warp. The inherited TrueLend
+suite validates the reused kernel more broadly. Passing tests do not replace
+the empirical calibration required above.

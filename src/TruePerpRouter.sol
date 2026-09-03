@@ -9,11 +9,14 @@ import {Currency} from "v4-core/types/Currency.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {SwapParams} from "v4-core/types/PoolOperation.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {FullMath} from "v4-core/libraries/FullMath.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {CurrencySettler} from "@uniswap/v4-core/test/utils/CurrencySettler.sol";
 import {ERC20} from "solmate/src/tokens/ERC20.sol";
 import {SafeTransferLib} from "solmate/src/utils/SafeTransferLib.sol";
 
 import {LendingVault} from "truelend/LendingVault.sol";
+import {LiqRangeMath} from "truelend/libraries/LiqRangeMath.sol";
 import {TruePerpHook} from "./TruePerpHook.sol";
 
 /// @title TruePerpRouter
@@ -25,9 +28,12 @@ contract TruePerpRouter is IUnlockCallback {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
     using SafeTransferLib for ERC20;
+    using StateLibrary for IPoolManager;
 
     uint8 internal constant ACTION_OPEN = 1;
     uint8 internal constant ACTION_CLOSE = 2;
+    uint256 internal constant BPS = 10_000;
+    uint16 public constant PERP_MAX_LT_BPS = 9500;
     uint32 public constant PERPETUAL_HORIZON = type(uint32).max;
 
     IPoolManager public immutable poolManager;
@@ -60,6 +66,20 @@ contract TruePerpRouter is IUnlockCallback {
         uint256 maxCollateralIn;
         uint160 sqrtPriceLimitX96; // 0 selects the pool's absolute boundary
         uint256 deadline;
+    }
+
+    /// @notice Spot-marked, quote-denominated position metrics. Leverage is
+    /// directional: a long's exposure is its held BASE value, while a short's
+    /// exposure is the value of the BASE it owes. This deliberately exposes the
+    /// one-turn asymmetry between physically represented longs and shorts.
+    struct PositionMetrics {
+        bool isLong;
+        uint256 collateralValueQuote;
+        uint256 debtValueQuote;
+        uint256 equityQuote;
+        uint256 directionalNotionalQuote;
+        uint256 leverageBps;
+        uint256 ltvBps;
     }
 
     event PerpetualOpened(
@@ -99,6 +119,9 @@ contract TruePerpRouter is IUnlockCallback {
     error InvalidPoolManager();
     error MissingSlippageProtection();
     error NonZeroCarryUnsupported();
+    error PositionNotActive();
+    error NoPositiveEquity();
+    error LtExceedsPerpetualMarketPolicy();
 
     modifier nonReentrant() {
         if (locked != 1) revert Reentrancy();
@@ -160,6 +183,41 @@ contract TruePerpRouter is IUnlockCallback {
         return (market.active, market.baseIs0);
     }
 
+    /// @notice Return current directional leverage and LTV at the pool's spot
+    /// price. These are display metrics, not admission values: `open` continues
+    /// to use TrueLend's manipulation-resistant borrower-adverse oracle.
+    function getPositionMetrics(PoolKey calldata key, bytes32 positionId)
+        external
+        view
+        returns (PositionMetrics memory metrics)
+    {
+        TruePerpHook.Position memory position = hook.getPosition(positionId);
+        if (position.borrower == address(0)) revert PositionNotActive();
+
+        PoolId poolId = key.toId();
+        if (PoolId.unwrap(poolId) != PoolId.unwrap(position.poolId)) revert WrongPool();
+        Market memory market = _activeMarket(poolId);
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+
+        uint256 debt = hook.debtOf(positionId);
+        metrics.isLong = position.collateralIs0 == market.baseIs0;
+        if (metrics.isLong) {
+            metrics.collateralValueQuote =
+                LiqRangeMath.convertAtSqrtPrice(position.collateral, sqrtPriceX96, market.baseIs0);
+            metrics.debtValueQuote = debt;
+            metrics.directionalNotionalQuote = metrics.collateralValueQuote;
+        } else {
+            metrics.collateralValueQuote = position.collateral;
+            metrics.debtValueQuote = LiqRangeMath.convertAtSqrtPrice(debt, sqrtPriceX96, market.baseIs0);
+            metrics.directionalNotionalQuote = metrics.debtValueQuote;
+        }
+
+        if (metrics.debtValueQuote >= metrics.collateralValueQuote) revert NoPositiveEquity();
+        metrics.equityQuote = metrics.collateralValueQuote - metrics.debtValueQuote;
+        metrics.leverageBps = FullMath.mulDiv(metrics.directionalNotionalQuote, BPS, metrics.equityQuote);
+        metrics.ltvBps = FullMath.mulDiv(metrics.debtValueQuote, BPS, metrics.collateralValueQuote);
+    }
+
     /// @notice Open a physical long or short using QUOTE margin.
     ///
     /// Long: (margin QUOTE + borrowed QUOTE) -> BASE collateral.
@@ -169,6 +227,7 @@ contract TruePerpRouter is IUnlockCallback {
         if (block.timestamp > p.deadline) revert DeadlineExpired();
         if (p.margin == 0 || p.borrowAmount == 0) revert ZeroAmount();
         if (p.minSwapOutput == 0) revert MissingSlippageProtection();
+        if (p.liquidationThresholdBps > PERP_MAX_LT_BPS) revert LtExceedsPerpetualMarketPolicy();
         uint256 maxSwapAmount = uint256(uint128(type(int128).max));
         if (p.borrowAmount > maxSwapAmount || p.margin > maxSwapAmount - p.borrowAmount) {
             revert AmountTooLarge();

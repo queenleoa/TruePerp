@@ -1,7 +1,7 @@
 # TruePerp
 
-**Expiry-free leveraged long and short positions with keeperless, gradual
-liquidation on Uniswap v4.**
+**Up to 10x expiry-free ETH leverage with keeperless, gradual liquidation on
+Uniswap v4.**
 
 ![TruePerp physical market architecture](docs/assets/architecture.png)
 
@@ -16,6 +16,14 @@ an unbacked cash promise against a house vault:
 The demo accepts USDC margin for either direction. A long swaps that margin and
 its borrowed USDC into WETH; a short adds the USDC received from selling
 borrowed WETH to its margin.
+
+Leverage is the product, not an incidental use of the lending vaults. For the
+curated WETH/USDC market, the recommended major-asset configuration uses a 95%
+liquidation threshold. The inherited 95% opening-headroom rule then caps
+admission at 90.25% LTV. Before pool costs, that corresponds to 10.26x long
+directional leverage and 9.26x short directional leverage. TruePerp therefore
+uses **up to 10x ETH leverage** as its product headline, while interfaces and
+tests retain the direction-specific values.
 
 Ordinary pool activity drives that process. The swap that moves the pool into a
 position's liquidation range calls the hook, and the hook can execute a bounded
@@ -62,6 +70,77 @@ debt-aware trigger re-registration as the borrow index changes.
 There is no separate GMX-style pool that pays marked trader profit. A profitable
 position is paid by the inventory it already holds: appreciated WETH for a long,
 or the USDC proceeds retained after borrowed WETH was sold for a short.
+
+## Leverage is the primary feature
+
+TruePerp turns TrueLend's leveraged-position route into the main trading
+interface. The economic loop is familiar:
+
+```text
+margin -> borrow the other pool asset -> swap -> hold leveraged inventory
+```
+
+The implementation performs the loop atomically inside one Uniswap v4
+PoolManager unlock. It does not create a recursive chain of loans:
+
+| Direction | Atomic construction | Resulting position |
+|---|---|---|
+| Long ETH | combine USDC margin with borrowed USDC, then buy WETH | hold WETH; owe USDC |
+| Short ETH | borrow WETH, sell it, then add the USDC proceeds to margin | hold USDC; owe WETH |
+
+Let `LTV` mean debt value divided by held-collateral value. Directional leverage
+after opening is
+
+```text
+long leverage  = 1 / (1 - LTV)
+short leverage = LTV / (1 - LTV)
+```
+
+The formulas differ because the long's WETH holding contains both
+margin-financed and debt-financed WETH, whereas the short's ETH exposure is only
+the borrowed WETH. At the recommended 90.25% opening cap:
+
+| Direction | Theoretical maximum before execution costs | Practical product label |
+|---|---:|---|
+| Long ETH | 10.26x | up to 10x |
+| Short ETH | 9.26x | up to about 9x |
+
+At the exact 90.25% cap, soft liquidation begins after roughly a 5% ETH fall
+for a long or a 5.26% rise for a short. Higher leverage therefore makes the
+gradual-liquidation mechanism central to the product, not a remote failure path.
+The 5x default demo offers more runway; the near-limit demo is a stress case.
+
+These are risk-policy limits, not guaranteed quotes. The router records actual
+AMM output, and the hook values the result at a borrower-adverse pool price.
+Swap fees and price impact therefore reduce the notional obtainable from a
+fixed USDC deposit and can make a request near the limit revert. Vault cash and
+the 90% utilization ceiling can constrain position size independently of the
+leverage ratio.
+
+After opening, `TruePerpRouter.getPositionMetrics` reports collateral value,
+debt value, equity, LTV, and direction-correct leverage at current pool spot for
+display. These live metrics do not replace the hook's more conservative
+borrower-adverse price for admission.
+
+This is implemented behavior, not a documentation-only multiplier:
+
+- [`openPosition`](src/TruePerpRouter.sol) performs the atomic borrow-and-swap
+  construction, opens against the actual received collateral, and rejects LT
+  above the canonical market's hard 95% policy even if the inherited hook
+  configuration is raised; and
+- [`getPositionMetrics`](src/TruePerpRouter.sol) derives current LTV and
+  direction-correct leverage from on-chain balances and pool spot.
+
+The present transaction interface accepts `margin` and `borrowAmount`, rather
+than a leverage multiplier. A demo frontend should translate its leverage
+selector into a direction-specific, execution-buffered borrow quote, then show
+the returned on-chain metrics after entry.
+
+For example, ignoring execution costs, 1,000 USDC can construct a 5x long by
+borrowing about 4,000 USDC and buying about 5,000 USDC of WETH. A 5x short
+instead borrows about 5,000 USDC worth of WETH, sells it, and holds about 6,000
+USDC. Equal borrow amounts do not produce equal labeled leverage in the two
+directions.
 
 ## What does ETH/USDC trade?
 
@@ -171,7 +250,8 @@ The demo deliberately targets one curated WETH/USDC market:
 
 - one hook-enabled Uniswap v4 pool with protocol-seeded wide-range liquidity;
 - one isolated USDC lending vault and one isolated WETH lending vault;
-- demo-selected three-to-five-times leverage, not a contract-enforced maximum;
+- up to 10x ETH leverage under the recommended major-asset risk profile,
+  including an easy-to-follow 5x default trace and a near-limit scenario;
 - actual swap execution for entry, exit, and liquidation;
 - caller-supplied deadlines and price limits;
 - a truncated pool-local observation history for borrower-adverse
@@ -192,7 +272,7 @@ real debt, and directs a declared donation to active pool liquidity.**
 | [`TruePerpHook`](src/TruePerpHook.sol) | position custody, pool observations, risk ranges, queue processing, swaps, and repayment |
 | [`PerpLendingVaultFactory`](src/PerpLendingVaultFactory.sol) | deploys the two zero-rate, utilization-capped support vaults used by v0 |
 | [`LendingVault`](lib/truelend/src/LendingVault.sol) | debt-share and loss accounting, instantiated once for USDC and once for WETH |
-| [`TruePerpRouter`](src/TruePerpRouter.sol) | atomic quote-margin entry and physical exit with user price protection |
+| [`TruePerpRouter`](src/TruePerpRouter.sol) | atomic quote-margin entry and physical exit, user price protection, and current spot-marked directional leverage metrics |
 | TrueLend libraries | tick indexing, truncated observations, range math, and chunk sizing |
 
 See [DESIGN.md](DESIGN.md) for the state machine and accounting model,
@@ -235,7 +315,8 @@ product logic belongs in the router, or the inherited kernel must first be
 split and reduced. This margin should be rechecked for every compiler or kernel
 change.
 
-The root suite currently contains 16 TruePerp integration tests; the inherited
-TrueLend engine has 94 tests in its own project. Both suites must be run when the
-kernel changes. TruePerp remains a research prototype and has not been
-externally audited.
+The root suite includes explicit near-10x long, approximately-9x short,
+opening-headroom, and major-asset LT-cap tests in addition to the position and
+liquidation scenarios. All 22 root tests and all 94 inherited TrueLend tests
+pass offline. Both suites must be run when the kernel changes. TruePerp remains
+a research prototype and has not been externally audited.
