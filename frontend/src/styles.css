@@ -852,6 +852,11 @@ input:focus-visible {
   color: #14121d;
 }
 
+.demo-token-mark.gas {
+  background: var(--acid);
+  color: #101411;
+}
+
 .demo-token-mark.usdc {
   background: #2775ca;
   color: #fff;

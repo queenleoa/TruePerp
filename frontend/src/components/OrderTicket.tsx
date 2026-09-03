@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { DemoAssets } from "./DemoAssets";
 import { hasAddressConfiguration } from "../config";
-import type { DemoToken, WalletSnapshot } from "../lib/trading";
+import type { DemoFaucetAsset, DemoToken, WalletSnapshot } from "../lib/trading";
 import {
   Direction,
   ENTRY_PRICE,
@@ -37,10 +37,12 @@ interface OrderTicketProps {
   demoAssets: {
     snapshot: WalletSnapshot | null;
     loading: boolean;
-    pendingToken: DemoToken | null;
+    pendingToken: DemoFaucetAsset | null;
     error: string;
     transactionHash?: string;
+    transactionAsset?: DemoFaucetAsset;
     onClaim: (token: DemoToken) => void;
+    onClaimGasEth: () => void;
     onRefresh: () => void;
   };
 }
@@ -174,12 +176,14 @@ export function OrderTicket({
         error={demoAssets.error}
         loading={demoAssets.loading}
         onClaim={demoAssets.onClaim}
+        onClaimGasEth={demoAssets.onClaimGasEth}
         onConnect={onConnect}
         onRefresh={demoAssets.onRefresh}
         onSwitchNetwork={onSwitchNetwork}
         pendingToken={demoAssets.pendingToken}
         snapshot={demoAssets.snapshot}
         transactionHash={demoAssets.transactionHash}
+        transactionAsset={demoAssets.transactionAsset}
         walletAddress={walletAddress}
       />
 

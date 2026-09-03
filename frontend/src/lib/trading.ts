@@ -16,13 +16,15 @@ import {
   type Hash,
   type Hex,
 } from "viem";
-import { UNICHAIN_SEPOLIA } from "../config";
+import { deployment, UNICHAIN_SEPOLIA } from "../config";
 import { previewPosition, type Direction, type PositionPreview } from "./leverage";
 import {
   DEFAULT_SLIPPAGE_BPS,
   demoTokenAbi,
   getDemoContracts,
+  getNativeEthFaucetAddress,
   MAX_ROUTER_AMOUNT,
+  nativeEthFaucetAbi,
   PERP_LIQUIDATION_THRESHOLD_BPS,
   stateViewAbi,
   TRUE_ETH_DECIMALS,
@@ -57,6 +59,7 @@ export const SAFE_EXPECTED_OPEN_LTV_BPS = 9_000;
 const Q96 = 1n << 96n;
 
 export type DemoToken = "trueEth" | "trueUsdc";
+export type DemoFaucetAsset = DemoToken | "nativeEth";
 
 export interface WalletSnapshot {
   nativeBalance: bigint;
@@ -67,6 +70,10 @@ export interface WalletSnapshot {
   trueUsdcClaimed: boolean;
   trueEthFaucetAmount: bigint;
   trueUsdcFaucetAmount: bigint;
+  nativeEthFaucetAvailable: boolean;
+  nativeEthClaimed: boolean;
+  nativeEthClaimAmount: bigint;
+  nativeEthRemainingClaims: bigint;
   formatted: {
     nativeBalance: string;
     trueEthBalance: string;
@@ -74,6 +81,7 @@ export interface WalletSnapshot {
     trueUsdcAllowance: string;
     trueEthFaucetAmount: string;
     trueUsdcFaucetAmount: string;
+    nativeEthClaimAmount: string;
   };
 }
 
@@ -142,7 +150,7 @@ export interface TransactionProgress {
 }
 
 export interface FaucetReceipt {
-  token: DemoToken;
+  token: DemoFaucetAsset;
   hash: Hash;
   blockNumber: bigint;
 }
@@ -567,6 +575,7 @@ async function requoteWithBorrow(
 
 export async function readWalletSnapshot(account: Address): Promise<WalletSnapshot> {
   const contracts = getDemoContracts();
+  const nativeEthFaucet = getNativeEthFaucetAddress();
   const normalized = getAddress(account);
   const [
     nativeBalance,
@@ -621,6 +630,28 @@ export async function readWalletSnapshot(account: Address): Promise<WalletSnapsh
     }),
   ]);
 
+  const [nativeEthClaimed, nativeEthClaimAmount, nativeEthRemainingClaims] =
+    nativeEthFaucet
+      ? await Promise.all([
+          truePerpPublicClient.readContract({
+            address: nativeEthFaucet,
+            abi: nativeEthFaucetAbi,
+            functionName: "hasClaimed",
+            args: [normalized],
+          }),
+          truePerpPublicClient.readContract({
+            address: nativeEthFaucet,
+            abi: nativeEthFaucetAbi,
+            functionName: "claimAmount",
+          }),
+          truePerpPublicClient.readContract({
+            address: nativeEthFaucet,
+            abi: nativeEthFaucetAbi,
+            functionName: "remainingClaims",
+          }),
+        ])
+      : [false, 0n, 0n] as const;
+
   return {
     nativeBalance,
     trueEthBalance,
@@ -630,6 +661,10 @@ export async function readWalletSnapshot(account: Address): Promise<WalletSnapsh
     trueUsdcClaimed,
     trueEthFaucetAmount,
     trueUsdcFaucetAmount,
+    nativeEthFaucetAvailable: nativeEthFaucet !== null,
+    nativeEthClaimed,
+    nativeEthClaimAmount,
+    nativeEthRemainingClaims,
     formatted: {
       nativeBalance: formatEther(nativeBalance),
       trueEthBalance: formatUnits(trueEthBalance, TRUE_ETH_DECIMALS),
@@ -637,6 +672,7 @@ export async function readWalletSnapshot(account: Address): Promise<WalletSnapsh
       trueUsdcAllowance: formatUnits(trueUsdcAllowance, TRUE_USDC_DECIMALS),
       trueEthFaucetAmount: formatUnits(trueEthFaucetAmount, TRUE_ETH_DECIMALS),
       trueUsdcFaucetAmount: formatUnits(trueUsdcFaucetAmount, TRUE_USDC_DECIMALS),
+      nativeEthClaimAmount: formatEther(nativeEthClaimAmount),
     },
   };
 }
@@ -704,6 +740,81 @@ export async function claimDemoToken(
   const receipt = await truePerpPublicClient.waitForTransactionReceipt({ hash });
   if (receipt.status !== "success") throw new Error("The faucet transaction reverted.");
   return { token, hash, blockNumber: receipt.blockNumber };
+}
+
+interface NativeFaucetApiResult {
+  hash?: unknown;
+  error?: unknown;
+  message?: unknown;
+}
+
+/**
+ * Requests a sponsored claim from the public faucet relay. No wallet
+ * transaction is created here: the server's funded signer calls
+ * claimFor(account), allowing an address with a zero native balance to start.
+ */
+export async function claimNativeEth(
+  expectedAccount: Address,
+): Promise<FaucetReceipt> {
+  const faucetAddress = getNativeEthFaucetAddress();
+  if (!faucetAddress) {
+    throw new Error("The gasless native ETH faucet has not been deployed yet.");
+  }
+  if (!deployment.nativeFaucetApi) {
+    throw new Error("The gasless native ETH faucet relay is not configured yet.");
+  }
+
+  const { account, walletClient } = await connectedWallet(expectedAccount);
+  const alreadyClaimed = await truePerpPublicClient.readContract({
+    address: faucetAddress,
+    abi: nativeEthFaucetAbi,
+    functionName: "hasClaimed",
+    args: [account],
+  });
+  if (alreadyClaimed) {
+    throw new Error("This wallet has already claimed its Unichain Sepolia gas ETH.");
+  }
+
+  const message = nativeFaucetClaimMessage(account);
+  const signature = await walletClient.signMessage({ account, message });
+
+  const response = await fetch(deployment.nativeFaucetApi, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ recipient: account, signature }),
+  });
+  let payload: NativeFaucetApiResult;
+  try {
+    payload = await response.json() as NativeFaucetApiResult;
+  } catch {
+    throw new Error("The gasless faucet relay returned an unreadable response.");
+  }
+
+  if (!response.ok) {
+    const reason = typeof payload.error === "string"
+      ? payload.error
+      : typeof payload.message === "string"
+        ? payload.message
+        : `Gasless faucet relay failed with HTTP ${response.status}.`;
+    throw new Error(reason);
+  }
+  if (typeof payload.hash !== "string" || !/^0x[0-9a-f]{64}$/i.test(payload.hash)) {
+    throw new Error("The gasless faucet relay did not return a valid transaction hash.");
+  }
+
+  const hash = payload.hash as Hash;
+  const receipt = await truePerpPublicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== "success") throw new Error("The gasless faucet transaction reverted.");
+  return { token: "nativeEth", hash, blockNumber: receipt.blockNumber };
+}
+
+export function nativeFaucetClaimMessage(account: Address): string {
+  return [
+    "TruePerp native gas faucet",
+    `Chain ID: ${UNICHAIN_SEPOLIA.id}`,
+    `Recipient: ${getAddress(account)}`,
+    "Amount: 0.05 ETH",
+  ].join("\n");
 }
 
 export async function approveTrueUsdcMargin(
@@ -864,6 +975,9 @@ export async function executeTrade(
 const revertMessages: Record<string, string> = {
   AlreadyClaimed: "This wallet has already used that token faucet.",
   FaucetExhausted: "The demo faucet has reached its capped supply.",
+  Unauthorized: "The native ETH faucet rejected the relay signer.",
+  NativeTransferFailed: "The native ETH faucet could not fund this wallet.",
+  InsufficientBalance: "The native ETH faucet does not have enough test ETH for another claim.",
   DeadlineExpired: "The quote expired before submission. Request a fresh quote and retry.",
   MarketNotActive: "The deployed TruePerp market is not active.",
   MissingSlippageProtection: "A non-zero minimum swap output is required.",

@@ -19,6 +19,7 @@ const addresses = {
   quoter: "0x56dcd40a3f2d466f48e7f48bdbe5cc9b92ae4472",
   trueEth: "0x88b49b8292a9e3174d77c5824dc96E177A56365D",
   trueUsdc: "0x1949280616D7Aad370C4fF0BcC2C5a351B90D9e0",
+  nativeFaucet: "0x2222222222222222222222222222222222222222",
   poolId: "0xb456c2c3c600c7530c3a3b0d238198a466be1943ae5b5e3fd5cbfb831699e3d9",
 } as const;
 
@@ -26,13 +27,15 @@ const judge = "0x1111111111111111111111111111111111111111" as Address;
 const faucetHash = `0x${"a".repeat(64)}` as Hash;
 const openHash = `0x${"b".repeat(64)}` as Hash;
 const positionId = `0x${"c".repeat(64)}` as Hash;
+const faucetSignature = `0x${"d".repeat(130)}` as Hash;
 
 const originalWindow = globalThis.window;
 
 function installInjectedWallet(chainId = "0x515", account: Address = judge) {
-  const request = vi.fn(async ({ method }: { method: string }) => {
+  const request = vi.fn(async ({ method }: { method: string; params?: unknown[] }) => {
     if (method === "eth_chainId") return chainId;
     if (method === "eth_accounts") return [account];
+    if (method === "personal_sign") return faucetSignature;
     if (method === "eth_sendTransaction") return faucetHash;
     throw new Error(`Unexpected wallet request: ${method}`);
   });
@@ -92,6 +95,8 @@ beforeAll(async () => {
   vi.stubEnv("VITE_BASE_TOKEN_ADDRESS", addresses.trueEth);
   vi.stubEnv("VITE_QUOTE_TOKEN_ADDRESS", addresses.trueUsdc);
   vi.stubEnv("VITE_POOL_ID", addresses.poolId);
+  vi.stubEnv("VITE_NATIVE_ETH_FAUCET", addresses.nativeFaucet);
+  vi.stubEnv("VITE_NATIVE_FAUCET_API", "/api/native-faucet");
   vi.resetModules();
   trading = await import("./trading");
   contracts = await import("./contracts");
@@ -231,7 +236,10 @@ describe("TruePerp judge transaction boundary", () => {
       .mockResolvedValueOnce(true)
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(parseUnits("5", 18))
-      .mockResolvedValueOnce(parseUnits("10000", 6));
+      .mockResolvedValueOnce(parseUnits("10000", 6))
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(parseUnits("0.05", 18))
+      .mockResolvedValueOnce(19n);
 
     const snapshot = await trading.readWalletSnapshot(judge);
 
@@ -242,9 +250,13 @@ describe("TruePerp judge transaction boundary", () => {
       trueUsdcAllowance: "500",
       trueEthFaucetAmount: "5",
       trueUsdcFaucetAmount: "10000",
+      nativeEthClaimAmount: "0.05",
     });
     expect(snapshot.trueEthClaimed).toBe(true);
     expect(snapshot.trueUsdcClaimed).toBe(false);
+    expect(snapshot.nativeEthFaucetAvailable).toBe(true);
+    expect(snapshot.nativeEthClaimed).toBe(false);
+    expect(snapshot.nativeEthRemainingClaims).toBe(19n);
     expect(readContract.mock.calls.map(([call]) => call.functionName)).toEqual([
       "balanceOf",
       "balanceOf",
@@ -253,7 +265,44 @@ describe("TruePerp judge transaction boundary", () => {
       "hasClaimed",
       "faucetAmount",
       "faucetAmount",
+      "hasClaimed",
+      "claimAmount",
+      "remainingClaims",
     ]);
+  });
+
+  it("requests native gas through a personal signature and relayer, with no wallet transaction", async () => {
+    const walletRequest = installInjectedWallet();
+    vi.spyOn(trading.truePerpPublicClient, "readContract").mockResolvedValue(false);
+    const relay = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ hash: faucetHash }),
+    } as Response);
+    vi.spyOn(trading.truePerpPublicClient, "waitForTransactionReceipt").mockResolvedValue({
+      status: "success",
+      blockNumber: 61_600_002n,
+      logs: [],
+    } as never);
+
+    const receipt = await trading.claimNativeEth(judge);
+
+    expect(trading.nativeFaucetClaimMessage(judge)).toBe(
+      `TruePerp native gas faucet\nChain ID: 1301\nRecipient: ${judge}\nAmount: 0.05 ETH`,
+    );
+    expect(receipt).toEqual({
+      token: "nativeEth",
+      hash: faucetHash,
+      blockNumber: 61_600_002n,
+    });
+    expect(relay).toHaveBeenCalledWith("/api/native-faucet", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ recipient: judge, signature: faucetSignature }),
+    }));
+    expect(walletRequest.mock.calls.map(([call]) => call.method)).toContain("personal_sign");
+    expect(walletRequest.mock.calls.map(([call]) => call.method)).not.toContain(
+      "eth_sendTransaction",
+    );
   });
 
   it("submits a TrueUSDC faucet claim through the connected wallet and waits for success", async () => {

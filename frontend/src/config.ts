@@ -32,6 +32,8 @@ export const DEFAULT_DEMO_DEPLOYMENT = {
   baseToken: "0x88b49b8292a9e3174d77c5824dc96E177A56365D",
   quoteToken: "0x1949280616D7Aad370C4fF0BcC2C5a351B90D9e0",
   transaction: "0x5919aded6e37bcb6040f46288e07841a16f6e694971cdefe70e9d03f21708957",
+  nativeEthFaucet: "0xf886d5EDF23946103cE5dE1b0F63E242dBFcd0fa",
+  nativeFaucetApi: "/api/native-faucet",
 } as const;
 
 export const deployment = {
@@ -46,7 +48,18 @@ export const deployment = {
   baseToken: import.meta.env.VITE_BASE_TOKEN_ADDRESS || DEFAULT_DEMO_DEPLOYMENT.baseToken,
   quoteToken: import.meta.env.VITE_QUOTE_TOKEN_ADDRESS || DEFAULT_DEMO_DEPLOYMENT.quoteToken,
   transaction: import.meta.env.VITE_DEPLOYMENT_TX || DEFAULT_DEMO_DEPLOYMENT.transaction,
+  // These values are public. The server-only relayer key is deliberately not a
+  // VITE_* variable and must never be included in the browser configuration.
+  nativeEthFaucet:
+    import.meta.env.VITE_NATIVE_ETH_FAUCET?.trim() || DEFAULT_DEMO_DEPLOYMENT.nativeEthFaucet,
+  nativeFaucetApi:
+    import.meta.env.VITE_NATIVE_FAUCET_API?.trim() || DEFAULT_DEMO_DEPLOYMENT.nativeFaucetApi,
 };
+
+export const hasNativeEthFaucetConfiguration = isAddress(deployment.nativeEthFaucet);
+export const hasNativeFaucetApiConfiguration = deployment.nativeFaucetApi.length > 0;
+export const hasGaslessNativeFaucetConfiguration =
+  hasNativeEthFaucetConfiguration && hasNativeFaucetApiConfiguration;
 
 // This only validates frontend input shape. It deliberately does not claim
 // that bytecode, router relationships, pool initialization, or activation have

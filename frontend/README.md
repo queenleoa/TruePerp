@@ -29,9 +29,12 @@ npm test
 npm run dev
 ```
 
-No local environment file is required for the checked-in hackathon deployment:
-its public addresses are safe defaults in `src/config.ts`. Copy `.env.example`
-to `.env.local` only when overriding the RPC or targeting another deployment.
+No frontend environment file is required for the checked-in hackathon
+deployment: its public addresses are safe defaults in `src/config.ts`. During
+`npm run dev`, a server-only Vite middleware reads `WALLET_PRIVATE_KEY` from the
+ignored root `.env` to relay native-gas claims. That value is never passed to
+client code. Copy `.env.example` to `.env.local` only when overriding public
+addresses or the RPC.
 
 Build and inspect the same static bundle that a host will serve:
 
@@ -41,6 +44,9 @@ npm run preview
 ```
 
 The production output is `frontend/dist/`.
+`npm run preview` serves only that static output, so it does not run the local
+gas relay. Use `npm run dev` locally or a configured Vercel/Netlify deployment
+when testing the gasless claim.
 The checked-in `.env.production` supplies only the public, verified Unichain
 Sepolia demo addresses, so a production build links to the deployed market by
 default. Hosting-provider variables may override these values.
@@ -54,11 +60,11 @@ position opens use the live testnet contracts.
 1. Open the application and click **Connect wallet**. Approve the MetaMask
    request. If prompted, click **Switch to Unichain Sepolia**; the application
    asks MetaMask to add the network when it is not already configured.
-2. Obtain a small amount of native Unichain Sepolia ETH for gas from a provider
-   listed in the [official Unichain faucet directory](https://developers.uniswap.org/docs/unichain/tools/faucets).
-   Native ETH pays transaction fees. TrueETH (`tETH`) is an ERC-20 demo asset
-   and cannot pay gas.
-3. In **Demo assets**, claim **5 tETH** and **10,000 tUSDC**. Each button sends
+2. In **Demo token faucet**, choose **Sign to claim 0.05 gas ETH**. MetaMask
+   signs a fixed ownership message without spending gas. The server-side
+   relayer then calls the funded faucet and sends 0.05 native ETH to the
+   connected wallet. Each recipient can receive this allocation once.
+3. Claim **5 tETH** and **10,000 tUSDC**. Each token button sends
    a real testnet transaction and requires a wallet confirmation. Each token
    can be claimed only once by a given wallet, and a claim can eventually fail
    if that token's hard supply cap has been reached.
@@ -85,14 +91,20 @@ condition changes before execution.
 
 The deployed mock-token addresses are:
 
-| Token | Address | Decimals | Per-wallet claim |
+| Asset | Address | Decimals | Per-wallet claim |
 |---|---|---:|---:|
+| Native gas ETH | `0xf886d5EDF23946103cE5dE1b0F63E242dBFcd0fa` (faucet) | 18 | 0.05 ETH |
 | TrueETH (`tETH`) | `0x88b49b8292a9e3174d77c5824dc96E177A56365D` | 18 | 5 tETH |
 | TrueUSDC (`tUSDC`) | `0x1949280616D7Aad370C4fF0BcC2C5a351B90D9e0` | 6 | 10,000 tUSDC |
 
 These addresses can also be imported into MetaMask to make the balances
 visible in the wallet. Both assets are capped, unbacked test tokens with no
 redemption right or external price guarantee.
+
+The native faucet began with 1 test ETH, enough for 20 allocations. If it is
+empty or the relay is unavailable, use a provider from the
+[official Unichain faucet directory](https://developers.uniswap.org/docs/unichain/tools/faucets)
+as a fallback. TrueETH is an ERC-20 demo asset and cannot pay network gas.
 
 ## Environment
 
@@ -110,6 +122,8 @@ The market uses semantic token variables:
 | `VITE_V4_QUOTER` | Canonical Uniswap v4 Quoter used for executable entry estimates |
 | `VITE_POOL_ID` | TrueETH/TrueUSDC hook-pool identifier |
 | `VITE_DEPLOYMENT_TX` | Optional explorer link target |
+| `VITE_NATIVE_ETH_FAUCET` | Public native-gas faucet contract address |
+| `VITE_NATIVE_FAUCET_API` | Same-origin relay route; defaults to `/api/native-faucet` |
 
 `BASE` and `QUOTE` do not imply `currency0` and `currency1`. In this checked-in
 deployment, the recorded `PoolKey` is `currency0=tUSDC` and `currency1=tETH`,
@@ -134,7 +148,9 @@ managed RPC for a public demo.
 
 Every `VITE_*` value is public in the browser bundle. Never place a wallet
 private key, mnemonic, or deployment signer secret in a frontend environment
-variable.
+variable. The relay uses the separate server-runtime variable
+`FAUCET_RELAYER_PRIVATE_KEY`. For this deployed faucet it must derive to the
+immutable relayer `0x476BD498e0CdC6F615253FF06c18461819641088`.
 
 ## Host it
 
@@ -148,14 +164,29 @@ For Vercel or Netlify, import the repository and use:
 | Output directory | `dist` |
 
 Copy only verified public deployment values into the host's environment
-settings. The checked-in `vercel.json` and `netlify.toml` pin the build output,
-and Netlify's configuration includes a single-page-app fallback. Vite uses
-relative asset paths, so the bundle also works from a static subdirectory.
+settings. Add `FAUCET_RELAYER_PRIVATE_KEY` as a sensitive, server-only variable
+for production, preview, and development environments where the gas relay
+should operate. Optionally set `FAUCET_ALLOWED_ORIGIN` to the exact hosted
+origin and use `UNICHAIN_RPC_URL` for a managed server-side RPC. Do not expose
+any of these server settings with a `VITE_` prefix.
+
+The checked-in Vercel Function and Netlify Function both serve
+`POST /api/native-faucet`; `npm run dev` exposes the same route locally. The
+checked-in `vercel.json` and `netlify.toml` pin the build output, and Netlify's
+configuration routes the API before its single-page-app fallback. A purely
+static host cannot run the relay. Vite uses relative asset paths, so the static
+bundle itself still works from a subdirectory.
+
+The relay is a hackathon convenience, not a production anti-abuse system. The
+wallet signature proves control of the recipient and the contract enforces one
+claim per address, but neither prevents a determined actor from creating many
+wallets. Keep only disposable testnet funds on the relayer key.
 
 ## Transaction boundary
 
 The transaction layer connects through the browser's injected wallet, reads
-mock-token balances and claim state, checks the market and admission oracle,
+native and mock-token faucet state, requests the gas-free native-faucet
+signature, checks the market and admission oracle,
 obtains an executable quote from the deployed Uniswap v4 Quoter, submits an
 exact tUSDC margin approval when needed, and calls
 `TruePerpRouter.openPosition`. Opening therefore asks for at most two wallet

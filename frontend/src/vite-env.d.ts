@@ -12,6 +12,8 @@ interface ImportMetaEnv {
   readonly VITE_BASE_TOKEN_ADDRESS?: string;
   readonly VITE_QUOTE_TOKEN_ADDRESS?: string;
   readonly VITE_DEPLOYMENT_TX?: string;
+  readonly VITE_NATIVE_ETH_FAUCET?: string;
+  readonly VITE_NATIVE_FAUCET_API?: string;
 }
 
 interface ImportMeta {

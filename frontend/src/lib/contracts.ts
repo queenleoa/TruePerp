@@ -72,6 +72,16 @@ export function getDemoContracts(): DemoContracts {
   };
 }
 
+/** Returns null while the optional native-gas faucet is not deployed. */
+export function getNativeEthFaucetAddress(): Address | null {
+  const value = deployment.nativeEthFaucet.trim();
+  if (!value || /^0x0{40}$/i.test(value)) return null;
+  if (!isAddress(value, { strict: false })) {
+    throw new Error("Native ETH faucet is configured with an invalid address.");
+  }
+  return getAddress(value);
+}
+
 const poolKeyComponents = [
   { name: "currency0", type: "address" },
   { name: "currency1", type: "address" },
@@ -131,6 +141,48 @@ export const demoTokenAbi = [
   },
   { type: "error", name: "AlreadyClaimed", inputs: [] },
   { type: "error", name: "FaucetExhausted", inputs: [] },
+] as const;
+
+export const nativeEthFaucetAbi = [
+  {
+    type: "function",
+    name: "hasClaimed",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "claimed", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "claimAmount",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "amount", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "remainingClaims",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "remaining", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "claimFor",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "recipient", type: "address" }],
+    outputs: [{ name: "amount", type: "uint256" }],
+  },
+  { type: "error", name: "AlreadyClaimed", inputs: [] },
+  { type: "error", name: "Unauthorized", inputs: [] },
+  { type: "error", name: "NativeTransferFailed", inputs: [] },
+  {
+    type: "error",
+    name: "InsufficientBalance",
+    inputs: [
+      { name: "available", type: "uint256" },
+      { name: "required", type: "uint256" },
+    ],
+  },
 ] as const;
 
 export const v4QuoterAbi = [

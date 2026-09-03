@@ -161,14 +161,18 @@ function App() {
                 snapshot: truePerp.snapshot,
                 loading: truePerp.isBusy,
                 pendingToken:
-                  truePerp.action === "claimTrueEth"
+                  truePerp.action === "claimNativeEth"
+                    ? "nativeEth"
+                    : truePerp.action === "claimTrueEth"
                     ? "trueEth"
                     : truePerp.action === "claimTrueUsdc"
                       ? "trueUsdc"
                       : null,
                 error: dialogOpen ? "" : truePerp.error,
                 transactionHash: truePerp.lastFaucetReceipt?.hash,
+                transactionAsset: truePerp.lastFaucetReceipt?.token,
                 onClaim: (token) => void truePerp.claim(token),
+                onClaimGasEth: () => void truePerp.claimGasEth(),
                 onRefresh: () => void truePerp.refresh(),
               }}
             />

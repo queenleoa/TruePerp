@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getAddress, isAddress, type Address } from "viem";
 import {
   claimDemoToken,
+  claimNativeEth,
   executeTrade,
   quoteTrade,
   readWalletSnapshot,
@@ -19,6 +20,7 @@ export type TruePerpAction =
   | "refresh"
   | "claimTrueEth"
   | "claimTrueUsdc"
+  | "claimNativeEth"
   | "quote"
   | "trade"
   | null;
@@ -116,6 +118,30 @@ export function useTruePerp({
     [account, isCorrectChain, refresh],
   );
 
+  const claimGasEth = useCallback(async () => {
+    if (!account) {
+      setError("Connect MetaMask before requesting gas ETH.");
+      return null;
+    }
+    if (!isCorrectChain) {
+      setError("Switch MetaMask to Unichain Sepolia before requesting gas ETH.");
+      return null;
+    }
+    setAction("claimNativeEth");
+    setError("");
+    try {
+      const receipt = await claimNativeEth(account);
+      setLastFaucetReceipt(receipt);
+      await refresh();
+      return receipt;
+    } catch (caught) {
+      setError(transactionErrorMessage(caught));
+      return null;
+    } finally {
+      setAction(null);
+    }
+  }, [account, isCorrectChain, refresh]);
+
   const requestQuote = useCallback(
     async (request: TradeRequest) => {
       setQuote(null);
@@ -183,6 +209,7 @@ export function useTruePerp({
     isBusy: action !== null,
     refresh,
     claim,
+    claimGasEth,
     requestQuote,
     open,
     clearFeedback,
