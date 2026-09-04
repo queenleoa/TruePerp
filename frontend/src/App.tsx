@@ -113,11 +113,9 @@ function App() {
         <div>
           {hasAddressConfiguration ? <CheckCircle2 size={14} /> : <FlaskConical size={14} />}
           <strong>{hasAddressConfiguration ? "Live testnet" : "Interactive demo"}</strong>
-          <span>
-            {hasAddressConfiguration
-              ? `TrueETH / TrueUSDC live on testnet · Router ${formatAddress(deployment.router)} · wallet transactions enabled`
-              : "Unbacked TrueETH / TrueUSDC demo assets · deployment configuration missing"}
-          </span>
+          {!hasAddressConfiguration && (
+            <span>TrueETH / TrueUSDC demo assets · deployment configuration missing</span>
+          )}
         </div>
         {hasAddressConfiguration && (
           <a
@@ -138,9 +136,7 @@ function App() {
       <main className="trade-layout" id="top">
         <section className="trading-workspace" id="trade">
           <div className="market-kicker">
-            <span>TrueETH perpetual demo</span>
-            <strong>Up to 10×</strong>
-            <small>mock base/quote inventory · no expiry · zero demo carry</small>
+            <strong>Up to 10× leverage</strong>
           </div>
           <div className="trading-grid">
             <PriceChart />
@@ -186,8 +182,8 @@ function App() {
 
       <footer className="site-footer">
         <div>
-          <span>TRUEPERP / HACKATHON PROTOTYPE</span>
-          <small>Not audited · unbacked test assets · demo values only</small>
+          <span>TRUEPERP</span>
+          <small>Physical perpetuals on Uniswap v4</small>
         </div>
         <nav aria-label="Project links">
           <a href="https://github.com/queenleoa/TruePerp#readme" target="_blank" rel="noreferrer">
@@ -198,6 +194,46 @@ function App() {
           </a>
         </nav>
       </footer>
+
+      {wallet.pickerOpen && (
+        <div
+          className="dialog-backdrop"
+          onMouseDown={wallet.closePicker}
+          role="presentation"
+        >
+          <section
+            aria-label="Choose a wallet"
+            aria-modal="true"
+            className="wallet-picker"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="wallet-picker-heading">
+              <h2>Connect a wallet</h2>
+              <button
+                aria-label="Close wallet picker"
+                className="icon-button"
+                onClick={wallet.closePicker}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+            <div className="wallet-picker-list">
+              {wallet.walletOptions.map((option) => (
+                <button
+                  key={option.uuid}
+                  onClick={() => void wallet.selectWallet(option.uuid)}
+                  type="button"
+                >
+                  <img alt="" src={option.icon} />
+                  <span>{option.name}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
 
       <PreviewDialog
         direction={direction}

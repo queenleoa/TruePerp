@@ -47,10 +47,10 @@ export function PriceChart() {
   const candles = useMemo(() => makeCandles(TIMEFRAMES.indexOf(timeframe) * 13), [timeframe]);
 
   const width = 760;
-  const height = 342;
-  const plotTop = 22;
-  const plotBottom = 286;
-  const volumeTop = 300;
+  const height = 250;
+  const plotTop = 18;
+  const plotBottom = 200;
+  const volumeTop = 212;
   const minimum = Math.min(...candles.map((candle) => candle.low));
   const maximum = Math.max(...candles.map((candle) => candle.high));
   const priceRange = maximum - minimum;
@@ -194,10 +194,10 @@ export function PriceChart() {
       </div>
 
       <div className="market-stats">
-        <div><span>Demo 24h high</span><strong>2,034.4 tUSDC</strong></div>
-        <div><span>Demo 24h low</span><strong>1,971.2 tUSDC</strong></div>
-        <div><span>LP deposits</span><strong>1k tETH + 2m tUSDC</strong></div>
-        <div><span>Open interest</span><strong>Demo</strong></div>
+        <div><span>24h high</span><strong>2,034.4 tUSDC</strong></div>
+        <div><span>24h low</span><strong>1,971.2 tUSDC</strong></div>
+        <div className="highlight"><span>LP deposits</span><strong>1k tETH + 2m tUSDC</strong></div>
+        <div><span>Open interest</span><strong>1.2m tUSDC</strong></div>
       </div>
     </section>
   );

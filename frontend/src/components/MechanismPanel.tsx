@@ -39,6 +39,8 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
   const [view, setView] = useState<ExplainerView>("open");
   const long = direction === "long";
   const admissionCap = 0.9025;
+  const ltvFraction = Math.min(1, preview.openingLtv / LIQUIDATION_THRESHOLD);
+  const gaugeHue = Math.max(12, 96 - ltvFraction * 86);
   const ltvHeadroom = Math.max(
     0,
     (LIQUIDATION_THRESHOLD - preview.openingLtv) * 100,
@@ -57,17 +59,11 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
     <aside className="mechanism-panel" aria-label="How TruePerp leverage works">
       <div className="mechanism-heading">
         <div>
-          <span className="eyebrow">Under the hood</span>
-          <h2>Leverage you can point to.</h2>
+          <span className="eyebrow">TruePerp — Under the hood</span>
+          <h2>Leverage calculations explained.</h2>
         </div>
         <span className="no-keeper"><Shield size={13} /> no privileged keeper</span>
       </div>
-
-      <p className="mechanism-intro">
-        TruePerp turns TrueLend's borrow-and-swap route into a trading product:
-        a real collateral-and-debt position, not a synthetic bet against an LP
-        vault. Ordinary Uniswap flow—or a permissionless poke—advances its unwind.
-      </p>
 
       <div className="protocol-lineage" aria-label="TrueLend powers TruePerp leverage">
         <span className="truelend-logo-crop" aria-hidden="true">
@@ -97,7 +93,7 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
       </div>
 
       {view === "open" ? (
-        <>
+        <div className="mechanism-open-grid">
           <div className={`sketch-canvas ${direction}`}>
           <span className="sketch-caption">one atomic PoolManager unlock</span>
           <svg className="rough-lines" viewBox="0 0 480 350" preserveAspectRatio="none" aria-hidden="true">
@@ -255,25 +251,46 @@ export function MechanismPanel({ direction, preview }: MechanismPanelProps) {
               <span><b>Hook</b> enforces admission and advances gradual liquidation.</span>
             </div>
           </section>
-        </>
+        </div>
       ) : (
         <div className={`liquidation-canvas ${direction}`}>
           <div className="risk-scale">
             <div className="risk-price">
-              <small>TrueETH price moves against your {direction}</small>
+              <small>TrueETH price moves against your {preview.leverage.toFixed(1)}× {direction}</small>
               <strong>{long ? "price ↓" : "price ↑"}</strong>
             </div>
-            <div className="risk-track">
-              <span className="safe-zone">healthy</span>
-              <span className="trigger-mark" style={{ left: "67%" }}>
+            <div
+              className={`risk-track dynamic${ltvFraction > 0.9 ? " hot" : ""}`}
+              aria-label={`Opening LTV ${(preview.openingLtv * 100).toFixed(2)} percent of the 95 percent liquidation threshold`}
+            >
+              <i
+                className="ltv-fill"
+                style={{
+                  width: `${ltvFraction * 100}%`,
+                  background: `hsl(${gaugeHue}, 52%, 56%)`,
+                }}
+              />
+              <span className="open-mark" style={{ left: `${ltvFraction * 100}%` }}>
+                <i />
+                you open here
+              </span>
+              <span className="lt-mark">
                 <i />
                 95% LT
               </span>
-              <span className="danger-zone">risk</span>
+            </div>
+            <div className="risk-buffer">
+              <strong style={{ color: `hsl(${gaugeHue}, 48%, 38%)` }}>
+                {long ? "−" : "+"}{(preview.liquidationDistance * 100).toFixed(1)}%
+              </strong>
+              <span>
+                price {long ? "drop" : "rise"} until gradual liquidation begins
+                near {formatQuote(preview.liquidationPrice, 0)}
+              </span>
             </div>
             <div className="risk-readout">
               <span>opens at {(preview.openingLtv * 100).toFixed(2)}% LTV</span>
-              <strong>starts near {formatQuote(preview.liquidationPrice, 0)}</strong>
+              <strong>drag the leverage slider to move this gauge</strong>
             </div>
           </div>
 

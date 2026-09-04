@@ -203,7 +203,24 @@ function safeRelayError(caught: unknown): NativeFaucetRelayError {
   if (errorName === "NativeTransferFailed") {
     return new NativeFaucetRelayError(422, "The recipient wallet rejected the native ETH transfer.");
   }
-  return new NativeFaucetRelayError(502, "The Unichain Sepolia relay transaction failed.");
+  const detail =
+    caught instanceof BaseError
+      ? caught.shortMessage
+      : caught instanceof Error
+        ? caught.message
+        : "";
+  return new NativeFaucetRelayError(
+    502,
+    detail
+      ? `The Unichain Sepolia relay transaction failed (${detail.slice(0, 160)}). Please try again.`
+      : "The Unichain Sepolia relay transaction failed. Please try again.",
+  );
+}
+
+/** Config and validation errors, and known faucet reverts, are final; anything
+ * else (RPC flake, rate limit, nonce race) is worth one retry. */
+function isRetryableFailure(caught: unknown): boolean {
+  return !(caught instanceof NativeFaucetRelayError) && revertedErrorName(caught) === undefined;
 }
 
 let relayQueue: Promise<void> = Promise.resolve();
@@ -215,7 +232,8 @@ async function submitNativeFaucetClaim(
   const { recipient } = await validateNativeFaucetRequest(payload);
   const { privateKey, faucet, rpcUrl } = relayConfiguration(environment);
   const account = privateKeyToAccount(privateKey);
-  const transport = http(rpcUrl);
+  // Fail fast on a stuck RPC so the retry still fits a serverless budget.
+  const transport = http(rpcUrl, { timeout: 8_000 });
   const publicClient = createPublicClient({ chain: unichainSepolia, transport });
   const walletClient = createWalletClient({ account, chain: unichainSepolia, transport });
 
@@ -270,10 +288,19 @@ export function relayNativeFaucetClaim(
   payload: unknown,
   environment: NativeFaucetRelayEnvironment,
 ): Promise<NativeFaucetRelayResult> {
-  const pending = relayQueue.then(
-    () => submitNativeFaucetClaim(payload, environment),
-    () => submitNativeFaucetClaim(payload, environment),
-  );
+  const attempt = async () => {
+    try {
+      return await submitNativeFaucetClaim(payload, environment);
+    } catch (caught) {
+      if (!isRetryableFailure(caught)) throw caught;
+      // Transient RPC or nonce failure: re-run the full submit once. The
+      // pre-checks re-read chain state, so a first attempt that actually
+      // landed resolves to AlreadyClaimed instead of double-paying.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      return submitNativeFaucetClaim(payload, environment);
+    }
+  };
+  const pending = relayQueue.then(attempt, attempt);
   relayQueue = pending.then(() => undefined, () => undefined);
   return pending.catch((caught) => {
     throw safeRelayError(caught);

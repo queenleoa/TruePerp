@@ -1,6 +1,6 @@
 # TruePerp interface
 
-This directory contains the hackathon interface for the TrueETH/TrueUSDC demo
+This directory contains the trading interface for the TrueETH/TrueUSDC
 market. TrueETH is an 18-decimal mock base asset and TrueUSDC is a 6-decimal
 mock quote asset. Both are capped, unbacked test tokens with no redemption
 right or external price guarantee. The interface therefore labels them by
@@ -29,7 +29,7 @@ npm test
 npm run dev
 ```
 
-No frontend environment file is required for the checked-in hackathon
+No frontend environment file is required for the checked-in
 deployment: its public addresses are safe defaults in `src/config.ts`. During
 `npm run dev`, a server-only Vite middleware reads `WALLET_PRIVATE_KEY` from the
 ignored root `.env` to relay native-gas claims. That value is never passed to
@@ -177,7 +177,7 @@ configuration routes the API before its single-page-app fallback. A purely
 static host cannot run the relay. Vite uses relative asset paths, so the static
 bundle itself still works from a subdirectory.
 
-The relay is a hackathon convenience, not a production anti-abuse system. The
+The relay is a lightweight testnet convenience. The
 wallet signature proves control of the recipient and the contract enforces one
 claim per address, but neither prevents a determined actor from creating many
 wallets. Keep only disposable testnet funds on the relayer key.
@@ -202,6 +202,6 @@ subject to slippage, vault capacity, oracle readiness, and the opening-LTV
 policy. See the root [deployment guide](../DEPLOYMENT.md) for mock-token supply,
 LP initialization, lending-vault capitalization, and oracle warm-up.
 
-The current hackathon interface opens positions but does not yet provide a
+The current interface opens positions but does not yet provide a
 close-position screen. A confirmed open returns both its transaction hash and
 position ID so the on-chain result can be inspected independently.

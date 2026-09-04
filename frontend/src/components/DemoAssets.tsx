@@ -152,8 +152,6 @@ export function DemoAssets({
         )}
       </div>
 
-      <p>One allocation per wallet. Sign once for gas, then claim the two demo assets.</p>
-
       <AssetRow
         amount={gasClaimAmount}
         balance={snapshot?.formatted.nativeBalance || "0"}
@@ -194,7 +192,7 @@ export function DemoAssets({
       {!walletAddress || !correctChain ? (
         <button className="demo-wallet-action" onClick={action} type="button">
           <Wallet size={12} />
-          {!walletAddress ? "Connect MetaMask to claim" : "Switch to Unichain Sepolia"}
+          {!walletAddress ? "Connect wallet to claim" : "Switch to Unichain Sepolia"}
         </button>
       ) : (
         <div className="demo-gas-row">

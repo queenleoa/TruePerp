@@ -234,7 +234,7 @@ export function PreviewDialog({
             <div className="demo-block live-block">
               <strong>Real testnet transaction</strong>
               <span>
-                Mock assets only. MetaMask may request one exact-margin approval,
+                Mock assets only. Your wallet may request one exact-margin approval,
                 followed by the position-open transaction. Native test ETH pays gas.
               </span>
             </div>

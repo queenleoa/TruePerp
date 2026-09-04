@@ -286,7 +286,7 @@ input:focus-visible {
 
 .trade-layout {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(390px, 0.92fr);
+  grid-template-columns: minmax(420px, 0.85fr) minmax(0, 1.8fr);
   gap: 1px;
   max-width: 1920px;
   min-height: calc(100vh - 101px);
@@ -316,10 +316,12 @@ input:focus-visible {
 }
 
 .market-kicker strong {
-  margin-left: 11px;
   color: var(--acid);
   font-family: "DM Mono", monospace;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .market-kicker small {
@@ -330,14 +332,12 @@ input:focus-visible {
 }
 
 .trading-grid {
-  display: grid;
-  grid-template-columns: minmax(470px, 1fr) 354px;
-  min-height: 720px;
+  display: block;
 }
 
 .chart-panel {
   min-width: 0;
-  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   background: var(--surface);
 }
 
@@ -520,14 +520,14 @@ input:focus-visible {
 
 .chart-wrap {
   position: relative;
-  min-height: 472px;
-  padding: 20px 11px 12px;
+  min-height: 270px;
+  padding: 14px 11px 8px;
 }
 
 .candle-chart {
   display: block;
   width: 100%;
-  height: 430px;
+  height: 244px;
   overflow: visible;
 }
 
@@ -637,13 +637,29 @@ input:focus-visible {
 .market-stats span {
   color: var(--muted-2);
   font-size: 9px;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
 .market-stats strong {
   font-family: "DM Mono", monospace;
-  font-size: 11px;
-  font-weight: 400;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.market-stats > div.highlight {
+  background: var(--surface-3);
+}
+
+.market-stats > div.highlight span {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.market-stats > div.highlight strong {
+  color: var(--acid);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .order-ticket {
@@ -1243,7 +1259,6 @@ input:focus-visible {
 }
 
 .mechanism-heading h2 {
-  max-width: 260px;
   font-family: "Caveat", cursive;
   font-size: 29px;
   font-weight: 600;
@@ -1340,10 +1355,22 @@ input:focus-visible {
   color: #f3f0e6;
 }
 
+.mechanism-open-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 10px;
+}
+
+.mechanism-open-grid .mechanism-math-card {
+  margin-top: 0;
+}
+
 .sketch-canvas {
   position: relative;
   height: 492px;
-  margin-top: 10px;
+  margin-top: 0;
   border: 1px solid rgba(45, 48, 44, 0.25);
   background: #f6f2e6;
 }
@@ -1414,19 +1441,19 @@ input:focus-visible {
 .sketch-node small {
   color: #767971;
   font-family: "DM Mono", monospace;
-  font-size: 7px;
+  font-size: 8px;
   text-transform: uppercase;
 }
 
 .sketch-node strong {
   margin: 4px 0 1px;
   font-family: "DM Mono", monospace;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .sketch-node span {
   color: #595c56;
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .trader-node {
@@ -1438,7 +1465,15 @@ input:focus-visible {
 .vault-node {
   top: 40px;
   right: 15px;
+  border-color: #b3892e;
+  border-width: 2px;
+  background: #fdf0c2;
   transform: rotate(1deg);
+}
+
+.vault-node small {
+  color: #8a6a1e;
+  font-weight: 600;
 }
 
 .router-node {
@@ -1458,9 +1493,13 @@ input:focus-visible {
 .pool-node {
   top: 234px;
   left: 50%;
-  width: 164px;
+  width: 172px;
   border-style: dashed;
   transform: translateX(-50%) rotate(-0.6deg);
+}
+
+.pool-node strong {
+  font-size: 12px;
 }
 
 .down-arrow {
@@ -1522,7 +1561,7 @@ input:focus-visible {
 
 .balance-line span {
   font-family: "DM Mono", monospace;
-  font-size: 7px;
+  font-size: 8px;
 }
 
 .balance-line.owns span {
@@ -1535,7 +1574,7 @@ input:focus-visible {
 
 .balance-line strong {
   font-family: "DM Mono", monospace;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .paper-equity {
@@ -1544,7 +1583,7 @@ input:focus-visible {
   border-top: 1px dashed #aaa99f;
   color: #777970;
   font-family: "Caveat", cursive;
-  font-size: 12px;
+  font-size: 14px;
   text-align: center;
 }
 
@@ -1607,17 +1646,17 @@ input:focus-visible {
 
 .mechanism-math-heading > strong {
   flex: 0 0 auto;
-  padding: 5px 7px;
+  padding: 5px 8px;
   background: #20231f;
   color: var(--acid);
   font-family: "DM Mono", monospace;
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .mechanism-math-definition {
   margin: 11px 0;
   color: #555952;
-  font-size: 9px;
+  font-size: 10.5px;
   line-height: 1.55;
 }
 
@@ -1652,14 +1691,14 @@ input:focus-visible {
 .mechanism-math-ledger span {
   color: #696c65;
   font-family: "DM Mono", monospace;
-  font-size: 7px;
+  font-size: 8px;
   text-transform: uppercase;
 }
 
 .mechanism-math-ledger strong {
   overflow-wrap: anywhere;
   font-family: "DM Mono", monospace;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 600;
   text-align: right;
 }
@@ -1667,7 +1706,7 @@ input:focus-visible {
 .mechanism-math-ledger small {
   grid-column: 2;
   color: #81837c;
-  font-size: 7px;
+  font-size: 8px;
   line-height: 1.4;
   text-align: right;
 }
@@ -1689,12 +1728,12 @@ input:focus-visible {
 
 .mechanism-math-equation span {
   color: #55713a;
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .mechanism-math-equation strong {
   font-family: "DM Mono", monospace;
-  font-size: 8px;
+  font-size: 11.5px;
   font-weight: 600;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -1712,12 +1751,12 @@ input:focus-visible {
 
 .mechanism-math-risk-copy span {
   color: #696c65;
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .mechanism-math-risk-copy strong {
   font-family: "DM Mono", monospace;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -1760,7 +1799,7 @@ input:focus-visible {
   margin-top: 7px;
   color: #686b64;
   font-family: "DM Mono", monospace;
-  font-size: 6px;
+  font-size: 7.5px;
   text-transform: uppercase;
 }
 
@@ -1776,7 +1815,7 @@ input:focus-visible {
 .mechanism-math-risk > p {
   margin: 9px 0 0;
   color: #676a63;
-  font-size: 8px;
+  font-size: 9.5px;
   line-height: 1.5;
 }
 
@@ -1787,7 +1826,7 @@ input:focus-visible {
   padding-top: 10px;
   border-top: 1px dashed #aaa99f;
   color: #63665f;
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .mechanism-math-roles span {
@@ -1799,17 +1838,39 @@ input:focus-visible {
 .mechanism-math-roles b {
   color: #343733;
   font-family: "DM Mono", monospace;
-  font-size: 7px;
+  font-size: 8px;
   font-weight: 600;
   text-transform: uppercase;
 }
 
 .liquidation-canvas {
-  min-height: 492px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px 22px;
+  align-content: start;
   margin-top: 10px;
-  padding: 18px 15px;
+  padding: 18px 17px 14px;
   border: 1px solid rgba(45, 48, 44, 0.25);
   background: #f6f2e6;
+}
+
+.liquidation-canvas .risk-scale {
+  grid-column: 1;
+  align-self: start;
+}
+
+.liquidation-canvas .liquidation-flow {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  margin-top: 0;
+}
+
+.liquidation-canvas .liq-note {
+  grid-column: 1;
+}
+
+.liquidation-canvas .keeper-comparison {
+  grid-column: 1;
 }
 
 .risk-scale {
@@ -1840,61 +1901,107 @@ input:focus-visible {
   font-size: 20px;
 }
 
-.risk-track {
+.risk-track.dynamic {
   position: relative;
-  display: flex;
-  height: 20px;
-  margin: 14px 0 8px;
+  height: 24px;
+  margin: 30px 0 10px;
   border: 1px solid #454842;
+  background: #eeeade;
 }
 
-.safe-zone,
-.danger-zone {
-  display: flex;
-  align-items: center;
-  padding: 0 7px;
+.ltv-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  max-width: 100%;
+  transition: width 0.35s ease, background-color 0.35s ease;
+}
+
+.risk-track.dynamic.hot .ltv-fill {
+  animation: risk-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes risk-pulse {
+  50% {
+    filter: brightness(1.2);
+  }
+}
+
+.open-mark {
+  position: absolute;
+  bottom: 27px;
+  color: #272a26;
+  font-family: "Caveat", cursive;
+  font-size: 13px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  transition: left 0.35s ease;
+}
+
+.open-mark i {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  height: 32px;
+  border-left: 2px solid #252824;
+}
+
+.lt-mark {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  color: #87483b;
   font-family: "DM Mono", monospace;
-  font-size: 7px;
+  font-size: 8px;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
-.safe-zone {
-  width: 67%;
-  background: #dcedc8;
-  color: #426322;
-}
-
-.danger-zone {
-  flex: 1;
-  justify-content: flex-end;
-  background: #f1cfc7;
-  color: #87483b;
-}
-
-.trigger-mark {
+.lt-mark i {
   position: absolute;
-  bottom: 25px;
-  color: #272a26;
+  top: -4px;
+  right: -4px;
+  height: 28px;
+  border-left: 2.5px solid #a15040;
+}
+
+.risk-buffer {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 8px 0 6px;
+}
+
+.risk-buffer strong {
   font-family: "Caveat", cursive;
-  font-size: 12px;
-  transform: translateX(-50%);
+  font-size: 32px;
+  line-height: 1;
+  transition: color 0.35s ease;
 }
 
-.trigger-mark i {
-  position: absolute;
-  top: 17px;
-  left: 50%;
-  height: 26px;
-  border-left: 2px solid #252824;
+.risk-buffer span {
+  color: #5c5f59;
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 .risk-readout {
   font-family: "DM Mono", monospace;
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .risk-readout strong {
+  color: #527b26;
   font-size: 9px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ltv-fill,
+  .open-mark,
+  .risk-buffer strong {
+    transition: none;
+    animation: none;
+  }
 }
 
 .liquidation-flow {
@@ -2452,13 +2559,61 @@ input:focus-visible {
   background: var(--acid);
 }
 
+.wallet-picker {
+  width: min(360px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.wallet-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.wallet-picker-heading h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.wallet-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wallet-picker-list button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.wallet-picker-list button:hover {
+  border-color: var(--acid);
+}
+
+.wallet-picker-list img {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+
 @media (max-width: 1460px) {
   .trade-layout {
-    grid-template-columns: minmax(0, 1.75fr) minmax(360px, 0.85fr);
-  }
-
-  .trading-grid {
-    grid-template-columns: minmax(420px, 1fr) 335px;
+    grid-template-columns: minmax(390px, 0.8fr) minmax(0, 1.6fr);
   }
 
   .order-ticket {
@@ -2483,7 +2638,13 @@ input:focus-visible {
   }
 
   .trading-grid {
-    grid-template-columns: minmax(0, 1fr) 360px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
+  }
+
+  .chart-panel {
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
   }
 
   #mechanism {
@@ -2555,11 +2716,25 @@ input:focus-visible {
   }
 
   .chart-wrap {
-    min-height: 350px;
+    min-height: 290px;
   }
 
   .candle-chart {
-    height: 320px;
+    height: 260px;
+  }
+
+  .mechanism-open-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .liquidation-canvas {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .liquidation-canvas .liquidation-flow {
+    grid-column: 1;
+    grid-row: auto;
+    margin-top: 12px;
   }
 
   .order-ticket {
@@ -2613,13 +2788,13 @@ input:focus-visible {
   }
 
   .chart-wrap {
-    min-height: 302px;
+    min-height: 260px;
     padding-right: 4px;
     padding-left: 4px;
   }
 
   .candle-chart {
-    height: 278px;
+    height: 236px;
   }
 
   .market-stats {

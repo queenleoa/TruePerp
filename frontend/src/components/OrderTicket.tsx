@@ -3,9 +3,7 @@ import {
   ArrowDownUp,
   ChevronDown,
   CircleAlert,
-  Info,
   Settings2,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { DemoAssets } from "./DemoAssets";
@@ -240,14 +238,6 @@ export function OrderTicket({
             </button>
           ))}
         </div>
-        <div className="limit-note">
-          <ShieldCheck size={14} />
-          <span>
-            {direction === "long"
-              ? "The 30 bp fee-adjusted target opens near 90% LTV, below the 90.25% admission cap. A live impact quote is still required."
-              : "A 9× physical short opens near 90% LTV. Borrowed TrueETH—not total TrueUSDC held—is its directional exposure."}
-          </span>
-        </div>
       </div>
 
       <div className="order-summary">
@@ -311,14 +301,15 @@ export function OrderTicket({
         {transactionPending ? "Please wait…" : actionLabel}
       </button>
 
-      <div className="execution-note">
-        {hasAddressConfiguration ? <Info size={14} /> : <CircleAlert size={14} />}
-        <span>
-          {hasAddressConfiguration
-            ? "Live testnet mode: the review uses the deployed v4 Quoter, then requests an exact-margin approval and opens through the TruePerp router."
-            : "Demo mode: no complete TruePerp market configuration is present and no transaction can be sent."}
-        </span>
-      </div>
+      {!hasAddressConfiguration && (
+        <div className="execution-note">
+          <CircleAlert size={14} />
+          <span>
+            Demo mode: no complete TruePerp market configuration is present and
+            no transaction can be sent.
+          </span>
+        </div>
+      )}
 
       <div className="atomic-route">
         <ArrowDownUp size={13} />

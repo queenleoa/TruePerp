@@ -18,6 +18,7 @@ import {
 } from "viem";
 import { deployment, UNICHAIN_SEPOLIA } from "../config";
 import { previewPosition, type Direction, type PositionPreview } from "./leverage";
+import { getActiveProvider } from "./wallets";
 import {
   DEFAULT_SLIPPAGE_BPS,
   demoTokenAbi,
@@ -678,10 +679,7 @@ export async function readWalletSnapshot(account: Address): Promise<WalletSnapsh
 }
 
 function getInjectedProvider(): EIP1193Provider {
-  const provider =
-    typeof window === "undefined"
-      ? undefined
-      : (window as typeof window & { ethereum?: EIP1193Provider }).ethereum;
+  const provider = getActiveProvider() as EIP1193Provider | undefined;
   if (!provider) {
     throw new Error("MetaMask or another injected browser wallet is required.");
   }
@@ -700,7 +698,7 @@ async function connectedWallet(expectedAccount: Address) {
   const expected = getAddress(expectedAccount);
   if (!active) throw new Error("Connect the browser wallet before transacting.");
   if (active !== expected) {
-    throw new Error("The active MetaMask account changed. Reconnect the interface and try again.");
+    throw new Error("The active wallet account changed. Reconnect the interface and try again.");
   }
 
   return {

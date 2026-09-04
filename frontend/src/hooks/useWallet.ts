@@ -1,40 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { UNICHAIN_SEPOLIA } from "../config";
-
-interface EthereumProvider {
-  request<T = unknown>(args: {
-    method: string;
-    params?: unknown[] | Record<string, unknown>;
-  }): Promise<T>;
-  on?(event: string, callback: (...args: unknown[]) => void): void;
-  removeListener?(event: string, callback: (...args: unknown[]) => void): void;
-}
-
-declare global {
-  interface Window {
-    ethereum?: EthereumProvider;
-  }
-}
+import {
+  DiscoveredWallet,
+  EIP1193ProviderLike,
+  getActiveProvider,
+  getDiscoveredWallets,
+  setActiveWallet,
+  subscribeWallets,
+} from "../lib/wallets";
 
 export function useWallet() {
   const [address, setAddress] = useState("");
   const [chainId, setChainId] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [walletOptions, setWalletOptions] = useState<DiscoveredWallet[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [provider, setProvider] = useState<EIP1193ProviderLike | undefined>(undefined);
 
-  const refresh = useCallback(async () => {
-    if (!window.ethereum) return;
-    const [accounts, currentChain] = await Promise.all([
-      window.ethereum.request<string[]>({ method: "eth_accounts" }),
-      window.ethereum.request<string>({ method: "eth_chainId" }),
-    ]);
-    setAddress(accounts[0] || "");
-    setChainId(currentChain);
+  useEffect(() => {
+    setWalletOptions(getDiscoveredWallets());
+    return subscribeWallets(() => setWalletOptions(getDiscoveredWallets()));
   }, []);
 
   useEffect(() => {
-    void refresh();
-    const provider = window.ethereum;
     if (!provider?.on) return;
 
     const handleAccounts = (...args: unknown[]) => {
@@ -48,22 +37,19 @@ export function useWallet() {
       provider.removeListener?.("accountsChanged", handleAccounts);
       provider.removeListener?.("chainChanged", handleChain);
     };
-  }, [refresh]);
+  }, [provider]);
 
-  const connect = useCallback(async () => {
-    if (!window.ethereum) {
-      setError("No browser wallet detected");
-      return;
-    }
+  const connectWithProvider = useCallback(async (selected: EIP1193ProviderLike) => {
     setPending(true);
     setError("");
     try {
-      const accounts = await window.ethereum.request<string[]>({
+      const accounts = await selected.request<string[]>({
         method: "eth_requestAccounts",
       });
-      const currentChain = await window.ethereum.request<string>({
+      const currentChain = await selected.request<string>({
         method: "eth_chainId",
       });
+      setProvider(selected);
       setAddress(accounts[0] || "");
       setChainId(currentChain);
     } catch (caught) {
@@ -73,15 +59,46 @@ export function useWallet() {
     }
   }, []);
 
+  const connect = useCallback(async () => {
+    const options = getDiscoveredWallets();
+    if (options.length > 1) {
+      setPickerOpen(true);
+      return;
+    }
+    if (options.length === 1) {
+      setActiveWallet(options[0].uuid);
+      await connectWithProvider(options[0].provider);
+      return;
+    }
+    const fallback = getActiveProvider();
+    if (!fallback) {
+      setError("No browser wallet detected. Install MetaMask or another wallet extension.");
+      return;
+    }
+    await connectWithProvider(fallback);
+  }, [connectWithProvider]);
+
+  const selectWallet = useCallback(
+    async (uuid: string) => {
+      setPickerOpen(false);
+      const selected = setActiveWallet(uuid);
+      if (selected) await connectWithProvider(selected);
+    },
+    [connectWithProvider],
+  );
+
+  const closePicker = useCallback(() => setPickerOpen(false), []);
+
   const switchNetwork = useCallback(async () => {
-    if (!window.ethereum) {
+    const active = provider ?? getActiveProvider();
+    if (!active) {
       setError("No browser wallet detected");
       return;
     }
     setPending(true);
     setError("");
     try {
-      await window.ethereum.request({
+      await active.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: UNICHAIN_SEPOLIA.hexId }],
       });
@@ -90,7 +107,7 @@ export function useWallet() {
       const code = (caught as { code?: number })?.code;
       if (code === 4902) {
         try {
-          await window.ethereum.request({
+          await active.request({
             method: "wallet_addEthereumChain",
             params: [
               {
@@ -112,7 +129,7 @@ export function useWallet() {
     } finally {
       setPending(false);
     }
-  }, []);
+  }, [provider]);
 
   return useMemo(
     () => ({
@@ -120,11 +137,28 @@ export function useWallet() {
       chainId,
       pending,
       error,
-      hasProvider: typeof window !== "undefined" && Boolean(window.ethereum),
+      hasProvider:
+        walletOptions.length > 0 ||
+        (typeof window !== "undefined" && Boolean(getActiveProvider())),
       isCorrectChain: chainId.toLowerCase() === UNICHAIN_SEPOLIA.hexId,
+      walletOptions,
+      pickerOpen,
       connect,
+      selectWallet,
+      closePicker,
       switchNetwork,
     }),
-    [address, chainId, pending, error, connect, switchNetwork],
+    [
+      address,
+      chainId,
+      pending,
+      error,
+      walletOptions,
+      pickerOpen,
+      connect,
+      selectWallet,
+      closePicker,
+      switchNetwork,
+    ],
   );
 }
