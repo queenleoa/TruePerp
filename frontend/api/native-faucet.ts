@@ -1,7 +1,7 @@
 import {
   relayErrorResponse,
   relayNativeFaucetClaim,
-} from "../server/nativeFaucetRelay";
+} from "../server/nativeFaucetRelay.ts";
 
 interface ApiRequest {
   method?: string;
