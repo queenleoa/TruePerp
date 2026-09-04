@@ -6,9 +6,10 @@
     "rpc": "https://sepolia.unichain.org"
   },
   "deployedAt": "2026-09-03T11:40:44Z",
+  "lastExtendedAt": "2026-09-03T15:26:50Z",
   "blockRange": {
     "from": 61583110,
-    "to": 61584992
+    "to": 61596788
   },
   "deployer": "0x476BD498e0CdC6F615253FF06c18461819641088",
   "infrastructure": {
@@ -26,6 +27,7 @@
     "perpLendingVaultFactory": "0x311DC01823835B4D442f4A78cB9E4bDd07Af8b03",
     "truePerpHook": "0x71280741519FCfc4c17b3cBdAF6e589E84Ba90c0",
     "truePerpRouter": "0xCE9376A2525CFFDbb1E5f1Fb01e2b04895C1A064",
+    "nativeGasFaucet": "0xf886d5EDF23946103cE5dE1b0F63E242dBFcd0fa",
     "baseVault": "0x2aC5081BEE73d6d8F49d5238E593af65a6FaE8E9",
     "quoteVault": "0x133A4EAbA992695614bE5545126d67244C51851D"
   },
@@ -53,6 +55,16 @@
       "faucetAmount": "10000000000"
     },
     "notice": "Both tokens are capped, unbacked test assets with one faucet claim per wallet and no post-construction admin mint path."
+  },
+  "nativeGasFaucet": {
+    "address": "0xf886d5EDF23946103cE5dE1b0F63E242dBFcd0fa",
+    "relayer": "0x476BD498e0CdC6F615253FF06c18461819641088",
+    "initialFunding": "1000000000000000000",
+    "claimAmount": "50000000000000000",
+    "initialClaimsAvailable": 20,
+    "eligibility": "one successful claim per recipient address",
+    "delivery": "recipient signs a gasless message; the server-only relayer calls claimFor(recipient)",
+    "notice": "Public-testnet convenience funding only. The relayer key must never be exposed through a VITE_* environment variable."
   },
   "market": {
     "poolId": "0xb456c2c3c600c7530c3a3b0d238198a466be1943ae5b5e3fd5cbfb831699e3d9",
@@ -119,6 +131,7 @@
     "marketActivation": "0x8617a71214a99d2f30ac2640c08b40328c9223e110e4c420e1e9c8cc6d253ab7",
     "positionMint": "0x43f9c9a963a0f764c64ba6ae5c8e8bcfbb461a77c768679f11902ce964d3aa1f",
     "baseVaultDeposit": "0x1d369d0078be2c4515c108c7ca9f51d986ade92d19c531bc2bda1f5d5149b7a0",
-    "quoteVaultDeposit": "0x5fbac71c0320e4deb79892ee75ae777879a937304db2e0914464811b4fef2fce"
+    "quoteVaultDeposit": "0x5fbac71c0320e4deb79892ee75ae777879a937304db2e0914464811b4fef2fce",
+    "nativeGasFaucetDeployment": "0x9008a572a89dd18d8b286477df2147a424dc3bc95d25debf3cce830a3770cce0"
   }
 }

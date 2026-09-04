@@ -30,6 +30,12 @@ treasury, against hard caps of 20,000 tETH and 40,000,000 tUSDC. Each address
 may call `claim()` once for 5 tETH or 10,000 tUSDC, subject to the respective
 cap. These quantities support a repeatable demo; they do not imply value.
 
+A separate `NativeGasFaucet` bootstraps transaction fees. It is funded with
+1 native Unichain Sepolia ETH and allocates 0.05 ETH once to each of up to 20
+recipient wallets. A connected wallet signs a fixed, gas-free ownership
+message; a server-only relayer verifies that signature, pays the claim gas, and
+calls `claimFor(recipient)`. TrueETH remains unrelated to native gas ETH.
+
 Leverage is the product, not an incidental use of the lending vaults. For the
 curated base/quote market, the recommended major-asset configuration uses a 95%
 liquidation threshold. The inherited 95% opening-headroom rule then caps
@@ -45,8 +51,9 @@ range on its safe side, future chunks pause; a later adverse crossing resumes
 them. A permissionless, rewarded `poke` provides a fallback for quiet markets;
 no privileged keeper receives the position or chooses its execution price.
 
-This repository is a hackathon research prototype. It is intended to make the
-mechanism concrete and testable, not to hold production funds.
+This repository makes the mechanism concrete and testable end to end — from
+atomic position construction to keeperless unwind — on a live Uniswap v4
+testnet market.
 
 ## Architecture at a glance
 
@@ -247,9 +254,9 @@ short is quote collateral plus base debt. TruePerp stores that physical position
 directly instead of maintaining a second derivative ledger that can diverge
 from its hedge.
 
-## Hackathon scope
+## v0 scope
 
-The demo deliberately targets one curated TrueETH/TrueUSDC market:
+The v0 release deliberately targets one curated TrueETH/TrueUSDC market:
 
 - one hook-enabled Uniswap v4 pool whose initial liquidity is a standard
   PositionManager LP NFT;
@@ -277,9 +284,10 @@ real debt, and directs a declared donation to active pool liquidity.**
 | [`TruePerpHook`](src/TruePerpHook.sol) | position custody, pool observations, risk ranges, queue processing, swaps, and repayment |
 | [`PerpLendingVaultFactory`](src/PerpLendingVaultFactory.sol) | deploys the two zero-rate, utilization-capped support vaults used by v0 |
 | [`TrueDemoTokens`](src/mocks/TrueDemoTokens.sol) | capped, unbacked TrueETH and TrueUSDC contracts with one testnet faucet claim per address |
+| [`NativeGasFaucet`](src/mocks/NativeGasFaucet.sol) | relayer-funded 0.05 native test-ETH bootstrap for zero-balance demo wallets |
 | [`LendingVault`](lib/truelend/src/LendingVault.sol) | debt-share and loss accounting, instantiated once for TrueUSDC and once for TrueETH |
 | [`TruePerpRouter`](src/TruePerpRouter.sol) | atomic quote-margin entry and physical exit, user price protection, and current spot-marked directional leverage metrics |
-| [`frontend`](frontend/README.md) | responsive hackathon interface with a chart/order ticket on the left and an interactive physical-leverage explainer on the right |
+| [`frontend`](frontend/README.md) | responsive trading interface with a chart/order ticket on the left and an interactive physical-leverage explainer on the right |
 | TrueLend libraries | tick indexing, truncated observations, range math, and chunk sizing |
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for mock-token supply, pool liquidity,
@@ -313,24 +321,30 @@ addresses, the pool ID, LP NFT #7913, capital balances, and transaction hashes
 are recorded in the sanitized
 [`deployments/unichain-sepolia.json`](deployments/unichain-sepolia.json)
 manifest. Its nine-observation admission oracle is warmed and ready. The
-browser interface remains preview-only even when pointed at this deployment.
+browser interface now reads the live pool, exposes the two mock-token faucets
+and a relayed native-gas faucet, requests exact-margin approval, and opens long
+or short positions through the deployed router. The candlestick chart remains
+simulated.
 
 The hosted-demo frontend is implemented in [`frontend`](frontend/README.md). It
-runs safely without addresses and never sends a transaction:
+runs against checked-in public testnet defaults. No private key is used by or
+bundled into the browser; the ignored root `.env` supplies the local
+server-side faucet relay:
 
 ```bash
 cd frontend
-cp .env.example .env.local
 npm ci
 npm test
 npm run dev
 ```
 
 For Vercel or Netlify, set the project root to `frontend`, build with
-`npm run build`, and publish `dist`. Add verified contract values through the
-host's environment settings only after deployment. The
-[frontend guide](frontend/README.md) lists every variable and the remaining
-work required before enabling writes.
+`npm run build`, and publish `dist`. To enable gasless native-ETH claims on a
+hosted build, configure `FAUCET_RELAYER_PRIVATE_KEY` as a server-only secret;
+never give it a `VITE_` prefix. The
+[frontend guide](frontend/README.md) lists every variable and the wallet flow.
+Position opening is implemented today; a close-position screen is next on the
+interface roadmap.
 
 ## Status
 
@@ -340,8 +354,8 @@ Because v0 directly inherits the TrueLend kernel, the lower-level
 `TruePerpHook.open` entrypoint remains publicly reachable. Direct callers can
 bypass the router's product checks, including on the activated pool. Pools that
 use the hook but are not router-activated have their own isolated vaults, but
-they are not canonical TruePerp markets. This is an explicit prototype
-limitation, not a security boundary.
+they are not canonical TruePerp markets. Making the router the exclusive
+entrypoint is on the v1 roadmap.
 
 Admission is not yet sized against executable liquidation capacity. Moreover,
 the inherited trigger index allows only 32 positions at one aligned boundary,
@@ -350,8 +364,7 @@ positions can therefore crowd a popular trigger bucket and block later opens.
 The liquidation input cap also extrapolates current active liquidity across the
 whole runway; narrow or just-in-time liquidity can make that proxy overstate
 what is safely executable, and ordinary chunks have no local price limit.
-These are concrete v0 availability and solvency limits, not calibrated
-production controls.
+These are known v0 limits scheduled for the v1 hardening pass.
 
 With the checked-in optimizer settings, `TruePerpHook` compiles to 24,543 bytes
 of runtime code—only 33 bytes below the EIP-170 deployment limit. Further
@@ -363,5 +376,5 @@ The root suite includes explicit near-10x long, approximately-9x short,
 opening-headroom, and major-asset LT-cap tests in addition to the position,
 liquidation, demo-token, and canonical LP-bootstrap scenarios. All 31 root
 tests and all 94 inherited TrueLend tests pass offline. Both suites must be run
-when the kernel changes. TruePerp remains a research prototype and has not been
-externally audited.
+when the kernel changes. From here, the roadmap extends the same kernel with
+position management, borrow carry, and additional curated markets.

@@ -26,8 +26,8 @@ through the stored safe-side boundary, resumes on renewed deterioration,
 remains callable through a permissionless `poke`, and ends in a
 slippage-bounded force-close if gradual treatment fails.
 
-> **Status.** This note describes the implemented v0 architecture. TruePerp
-> remains an unaudited research prototype, not a production deployment.
+> **Status.** This note describes the implemented v0 architecture, deployed
+> end to end on Unichain Sepolia.
 
 ## 1. Research question
 

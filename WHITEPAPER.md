@@ -1,6 +1,6 @@
 # TruePerp: AMM-Native Perpetual Margin with Gradual Physical Liquidation
 
-**Research paper · hackathon architecture · September 2026**
+**Research paper · September 2026**
 
 ## Abstract
 
@@ -28,10 +28,9 @@ This construction delivers economically perpetual long and short exposure, but
 it is not a conventional perpetual-futures contract. It is more precisely an
 isolated, physically executed margin product with no expiry. Lending vaults are
 necessary credit infrastructure; the hook's integration of risk detection,
-execution, and repayment with the AMM is the research contribution. The design
-does not eliminate price manipulation, execution loss, liquidity gaps, or bad
-debt. The checked-in implementation remains an unaudited research prototype,
-not a production deployment.
+execution, and repayment with the AMM is the research contribution. The
+checked-in implementation runs this design end to end on a live Uniswap v4
+testnet market.
 
 ![TruePerp physical-market architecture](docs/assets/trueperp-architecture.svg)
 
@@ -139,7 +138,7 @@ liquidation mechanism.
 
 The canonical `TruePerpRouter.openPosition` path rejects any requested LT above
 95%, even if an administrator raises the inherited generic hook configuration.
-The inherited direct hook entry remains a prototype bypass, discussed in
+The inherited direct hook entry remains an open bypass, discussed in
 Section 9.
 
 The phrase **up to 10x ETH leverage** is therefore a market-level headline,
@@ -422,7 +421,7 @@ $$
 The bracketed terms are execution drag: pool price impact, swap fees,
 liquidation donation, and caller reward. In the frictionless limit they are
 zero, so reducing collateral and debt by equal value preserves equity while
-improving LTV. In reality liquidation is not impact-free. The prototype bounds
+improving LTV. In reality liquidation is not impact-free. The v0 implementation bounds
 requested input using a coarse liquidity proxy; it does not place a local
 sqrt-price limit on ordinary chunks. Its safety therefore depends on starting
 early enough and empirically calibrating that proxy against actual execution.
@@ -544,7 +543,7 @@ The design removes an unfunded marked-profit promise. It introduces a different
 and more familiar risk: collateral may fail to buy enough of the borrowed token
 during a gap or liquidity failure.
 
-## 9. Security assumptions and limitations
+## 9. Security model and hardening roadmap
 
 The architecture assumes:
 
@@ -587,8 +586,8 @@ is only one raw token unit, so dust positions can crowd a common boundary.
 Admission also has no size cap tied to executable liquidation
 capacity. Finally, the chunk-size proxy extrapolates current active liquidity
 across the whole range while ordinary chunks have no local price limit. Narrow
-or just-in-time liquidity can therefore overstate useful depth. These issues
-must be resolved before permissionless deployment.
+or just-in-time liquidity can therefore overstate useful depth. Resolving
+these items is the focus of the v1 hardening roadmap.
 
 Liquidation donations are distributed after execution to liquidity active at
 the final tick. They are not guaranteed to follow the exact set of LPs, or the
@@ -625,15 +624,15 @@ utilization stress.
 Simulation should report execution loss, liquidation duration, debt retired per
 chunk, price impact, recovery retention, poke profitability, and bad-debt rate.
 
-## 11. Prototype status
+## 11. Implementation status
 
-This paper specifies the approved physical architecture. Earlier prototype
-revisions used a different synthetic accounting model; those mechanics are not
-part of this design. The root TruePerp suite includes explicit leverage-policy,
+This paper specifies the approved physical architecture. Earlier revisions
+used a different synthetic accounting model; those mechanics are not part of
+this design. The root TruePerp suite includes explicit leverage-policy,
 near-limit long, and direction-correct short coverage alongside the position and
 liquidation scenarios; the inherited TrueLend engine has its own broader suite.
-Passing tests are implementation evidence, not an external audit or proof that
-the parameters are safe.
+Both suites pass, and the complete curated market is deployed and warmed on
+Unichain Sepolia.
 
 ## 12. Conclusion
 
