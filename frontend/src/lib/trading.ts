@@ -781,11 +781,19 @@ export async function claimNativeEth(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ recipient: account, signature }),
   });
+  const rawBody = await response.text();
   let payload: NativeFaucetApiResult;
   try {
-    payload = await response.json() as NativeFaucetApiResult;
+    payload = JSON.parse(rawBody) as NativeFaucetApiResult;
   } catch {
-    throw new Error("The gasless faucet relay returned an unreadable response.");
+    // A non-JSON body means the platform answered instead of the relay
+    // function (HTML 404 or SPA fallback): the function is not deployed at
+    // this path.
+    throw new Error(
+      `The faucet relay endpoint is not responding as expected (HTTP ${response.status}). ` +
+        "The hosted site is likely missing the serverless function — check that the " +
+        "deployment's root directory is set to \"frontend\".",
+    );
   }
 
   if (!response.ok) {

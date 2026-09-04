@@ -277,6 +277,7 @@ describe("TruePerp judge transaction boundary", () => {
     const relay = vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       status: 200,
+      text: async () => JSON.stringify({ hash: faucetHash }),
       json: async () => ({ hash: faucetHash }),
     } as Response);
     vi.spyOn(trading.truePerpPublicClient, "waitForTransactionReceipt").mockResolvedValue({
