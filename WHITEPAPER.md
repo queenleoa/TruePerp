@@ -2,41 +2,65 @@
 
 **Research paper · September 2026**
 
+▶ **[Watch the TruePerp explainer video](https://youtu.be/F8zWRHL97Lc)**
+
 ## Abstract
 
-TruePerp is an expiry-free leveraged-trading protocol built around a Uniswap v4
-pool and its hook lifecycle. **Its primary product feature is up to 10x ETH
-leverage under the recommended WETH/USDC major-asset risk profile.** An ETH long
-holds WETH and owes USDC; an ETH short holds USDC and owes WETH. Entry, exit,
-and liquidation therefore exchange real inventory through the associated
-WETH/USDC pool. There is no synthetic cash-settled claim against a shared
-counterparty pool, no fixed maturity, and no zero-sum funding payment between
-long and short traders. The v0 debt vaults
-deliberately charge zero interest: they are protocol-seeded support capital for
-the mechanism demonstration, not yield products.
+TruePerp is an oracleless and keeperless leveraged-trading protocol
+built around a Uniswap v4 pool and its hook lifecycle. **Its primary product
+feature is up to 10x expiry-free base-asset leverage.** A long holds the base
+asset and owes the quote asset; a short holds quote and owes base. Entry, exit,
+and liquidation exchange real inventory through the associated AMM. There is
+no synthetic cash-settled claim against a shared counterparty pool, no fixed
+maturity, and no zero-sum funding payment between long and short traders. The
+v0 debt vaults charge zero interest and isolate the liquidation mechanism.
 
 The protocol's principal contribution is an AMM-native liquidation process.
 Ordinary swaps update a pool-local price history, cross position-specific risk
 ticks, and give the hook an opportunity to execute a bounded liquidation swap
 before the transaction completes. A distressed position is converted from its
-held asset into its debt asset in time-paced, input-capped chunks. Every chunk
-repays debt. If price recovers, future chunks pause; if the pool becomes quiet,
-a permissionless `poke` runs the same state machine; and if gradual treatment is
-exhausted, a slippage-bounded `forceClose` provides the terminal path.
+held asset into its debt asset in time-paced, input-capped chunks. Every
+successfully filled chunk repays debt. If price recovers, future chunks pause;
+if the pool becomes quiet, a permissionless `poke` runs the same state machine;
+and if gradual treatment is exhausted, a slippage-bounded `forceClose` provides
+the terminal path. No privileged liquidator selects the position or its
+execution venue.
 
-This construction delivers economically perpetual long and short exposure, but
-it is not a conventional perpetual-futures contract. It is more precisely an
-isolated, physically executed margin product with no expiry. Lending vaults are
-necessary credit infrastructure; the hook's integration of risk detection,
-execution, and repayment with the AMM is the research contribution. The
-checked-in implementation runs this design end to end on a live Uniswap v4
-testnet market.
+This construction delivers physically executed, expiry-free long and short
+exposure. Lending vaults provide the credit, and the hook integrates risk
+detection, execution, and repayment with the AMM. The checked-in implementation
+runs this design end to end on a live Uniswap v4 testnet market.
+
+The paper uses WETH/USDC to describe the intended economically backed market.
+The deployed hackathon market uses capped tETH/tUSDC demo tokens and therefore
+tracks the endogenous price of that pool.
 
 ![TruePerp physical-market architecture](docs/assets/trueperp-architecture.svg)
 
 *Figure 1. The router constructs physical exposure, the hook owns the risk
 state machine, the WETH/USDC pool prices and executes every conversion, and the
 isolated vaults provide debt rather than marked-PnL backing.*
+
+## Motivation
+
+External oracle dependence introduces manipulation risk, update latency, and
+asset-listing constraints. A large empirical survey recorded at least $3.24
+billion in total losses across 181 DeFi incidents and identified price-oracle
+attacks as the most frequent incident type in its dataset [4].
+
+Liquidation design creates a second source of instability. Threshold-triggered
+liquidations often sell a large amount of discounted collateral through
+specialized liquidators. Empirical work finds that prevalent mechanisms can
+sell excessive collateral at the borrower's expense [5], while concentrated
+liquidation flow can amplify market stress and bad debt [6].
+
+TruePerp moves the price reference, trigger, execution, and repayment path into
+one AMM. Pool ticks identify distress, ordinary swaps provide the event flow,
+the hook converts collateral in bounded chunks, active LPs can receive the
+liquidation donation, and the relevant lending vault receives debt repayment.
+This same mechanism connects three groups: traders receive leveraged exposure,
+LPs receive new order flow and liquidation charges, and lenders supply the
+assets used to construct each position.
 
 ## 1. Instrument definition
 
@@ -85,13 +109,11 @@ collateral ratios remain acceptable; elapsed time alone does not increase v0
 debt. This is the economically relevant sense in which the exposure is
 perpetual.
 
-The term must not obscure the distinction from a standard perpetual swap.
 TruePerp has no separate derivative mark, no periodic transfer between matched
-longs and shorts, and no shared marked-profit obligation. Its closest conventional
-category is isolated leveraged spot or margin financing. The protocol retains
-the TruePerp name because it offers continuous long and short exposure and an
-automated maintenance process, not because its balance sheet is identical to a
-futures exchange.
+longs and shorts, and no shared marked-profit obligation. Its conventional
+category is isolated leveraged spot or margin financing. The TruePerp name
+describes its continuous long and short exposure and automated maintenance
+process.
 
 ### 1.3 Leverage envelope
 
@@ -123,6 +145,27 @@ This produces the following frictionless, post-trade limits:
 | Long WETH | $1/(1-0.9025)=10.26\times$ | up to 10x |
 | Short WETH | $0.9025/(1-0.9025)=9.26\times$ | up to approximately 9x |
 
+The long-side leverage intuition can also be written as a recursive geometric
+series. If each round borrows fraction $r$ against newly acquired collateral,
+then total exposure per unit of margin converges to
+
+$$
+1+r+r^2+r^3+\cdots=\frac{1}{1-r}.
+$$
+
+At $r=90\%$, one unit of margin supports ten units of gross long exposure.
+
+![Recursive borrowing as a geometric series](docs/assets/recursive-borrow-flow.png)
+
+*Figure 2. Frictionless long-side leverage at 90% LTV. The deployed router
+creates the equivalent terminal collateral and debt balance with one atomic
+borrow and swap.*
+
+The same series explains the approximately 17x figure in the TrueLend research
+profile. A 99% LT combined with 95% opening headroom gives $r=94.05\%$ and
+$1/(1-r)=16.81\times$. TruePerp chooses a 95% LT, giving $r=90.25\%$ and a
+$10.26\times$ frictionless long limit.
+
 At the maximum opening LTV, the soft boundary lies about 5% below the opening
 price for a long and 5.26% above it for a short:
 
@@ -138,20 +181,18 @@ liquidation mechanism.
 
 The canonical `TruePerpRouter.openPosition` path rejects any requested LT above
 95%, even if an administrator raises the inherited generic hook configuration.
-The inherited direct hook entry remains an open bypass, discussed in
-Section 9.
+The inherited direct hook entry remains an alternative entry surface,
+discussed in Section 9.
 
-The phrase **up to 10x ETH leverage** is therefore a market-level headline,
-not a statement that both directions have an identical algebraic maximum. It
-also does not guarantee that a deposit can obtain the frictionless notional:
-the route records actual pool output and admission uses a borrower-adverse
-price, so swap fees and impact reduce the execution-safe request. Vault cash,
-the hard utilization ceiling, and route price bounds constrain absolute
-position size separately.
+The market presents **up to 10x base-asset leverage**. Long and short positions
+have different algebraic maxima. The route records actual pool output and
+admission uses a borrower-adverse price, so swap fees and impact determine the
+execution-safe request. Vault cash, the hard utilization ceiling, and route
+price bounds determine absolute position size.
 
 ![Atomic physical long, short, and liquidation flows](docs/assets/trueperp-leverage.svg)
 
-*Figure 2. Frictionless examples expose the long/short leverage asymmetry. The
+*Figure 3. Frictionless examples expose the long/short leverage asymmetry. The
 transaction records actual swap output, so executable requests must leave a
 buffer for fees, impact, and admission pricing.*
 
@@ -173,8 +214,9 @@ proceeds. They are not debited for a trader's marked profit.
 
 `TruePerpHook` owns the position state machine. It records collateral and debt
 shares, maintains a truncated pool-local observation history, indexes
-liquidation boundaries by tick, executes collateral-to-debt swaps, donates the
-liquidation charge, and routes net output to debt repayment.
+liquidation boundaries by tick, executes collateral-to-debt swaps, routes the
+liquidation charge to active final-tick liquidity, and sends net output to debt
+repayment.
 
 The hook is the protocol-specific innovation. A lending vault can exist without
 TruePerp; it does not by itself turn spot activity into gradual liquidation. The
@@ -355,9 +397,14 @@ $$
 
 for a short. A long enters danger as price falls; a short enters danger as price
 rises. The demo places a fixed far tick a configured width deeper in the adverse
-direction. That geometric edge is not itself a solvency guarantee; a separate
-live coverage test can enable force-close earlier when price, prior execution,
-and liquidation charges consume the remaining runway.
+direction. A separate live coverage test can enable force-close earlier when
+price, prior execution, and liquidation charges consume the remaining runway.
+
+The deployed profile uses a range width of 3,466 ticks, approximately a
+$\sqrt{2}$ price span. In semantic base/quote price, the long range extends from
+$P_{L,\theta}$ down toward $P_{L,\theta}/\sqrt{2}$, while the short range
+extends from $P_{S,\theta}$ up toward $P_{S,\theta}\sqrt{2}$. Tick alignment
+rounds both boundaries conservatively.
 
 The corresponding price boundaries are converted into initialized Uniswap
 ticks with explicit token orientation and decimal normalization. Rounding is
@@ -399,6 +446,13 @@ $$
 $$
 C_q'=C_q-x_q, \qquad D_b'=D_b-u_b.
 $$
+
+![Short-position liquidation follows the adverse swap direction](docs/assets/liquidation-flow.png)
+
+*Figure 4. Short-direction flow inherited from TrueLend. ETH buying moves price
+against a USDC-collateral/ETH-debt position; the hook then swaps USDC collateral
+into ETH through the same LP liquidity. Section 5 defines the implementation's
+start tick and configured far tick.*
 
 Thus every successful chunk retires debt. If debt reaches zero, unused output
 and all unsold collateral are returned to the trader. If no executable pool
@@ -452,18 +506,27 @@ not guarantee execution through a gap or an empty pool.
 
 The hook uses the v4 lifecycle as follows:
 
-1. `beforeSwap` records the pre-swap tick when the observation interval permits.
-2. The user's ordinary swap executes.
-3. `afterSwap` walks only crossed registered boundaries, refreshes affected
-   positions, and processes at most a configured number of due chunks.
-4. A chunk calls the PoolManager's swap function directly in the already-open
+1. `afterInitialize` deploys one isolated vault for each pool asset, installs
+   the initial risk configuration, enables the pool in the hook, and starts the
+   first price observation.
+2. `beforeSwap` feeds the pre-swap tick into the truncated observation system.
+   The ring commits at most once per 60-second interval and retains interim
+   extremes.
+3. The user's ordinary swap executes.
+4. `afterSwap` walks crossed registered boundaries, refreshes affected
+   positions, and then processes at most two due chunks from the active queue.
+   Positions activated by an earlier swap remain eligible without another
+   boundary crossing.
+5. A chunk calls the PoolManager's swap function directly in the already-open
    accounting context. The vendored v4-core
    `lib/truelend/lib/v4-periphery/lib/v4-core/src/libraries/Hooks.sol`
    implementation skips `beforeSwap` and `afterSwap` when the hook itself
    initiated the swap, so the liquidation swap does not recursively invoke
    these callbacks.
-5. The hook settles its input, takes the output, donates the declared penalty,
-   and repays the correct lending vault.
+6. The hook settles its input, takes the output, pays any caller reward, donates
+   the remaining charge when active liquidity exists at the final tick, and
+   repays the correct lending vault. With no active final-tick liquidity, that
+   amount remains available for repayment.
 
 All loops and trigger walks require hard bounds and resumable cursors. Ordinary
 swappers must not inherit unbounded work from the number of open positions.
@@ -579,20 +642,23 @@ inherited kernel is decomposed.
 
 The canonical router enforces the 95% LT product ceiling on every opening, even
 if the generic hook configuration is higher. It is not yet an exclusive
-authorization boundary: the inherited public opening function can bypass that
-ceiling as well as market activation, quote-margin routing, and router execution
-guards. Trigger buckets are capped at 32 positions and the default debt minimum
-is only one raw token unit, so dust positions can crowd a common boundary.
+authorization boundary: the inherited public opening function bypasses market
+activation, quote-margin routing, and router execution guards. The deployed
+hook configuration separately enforces the same 95% LT maximum; a direct call
+can exceed it only after an owner configuration change. Trigger buckets are
+capped at 32 positions and the default debt minimum is only one raw token unit,
+so dust positions can crowd a common boundary.
 Admission also has no size cap tied to executable liquidation
 capacity. Finally, the chunk-size proxy extrapolates current active liquidity
 across the whole range while ordinary chunks have no local price limit. Narrow
 or just-in-time liquidity can therefore overstate useful depth. Resolving
 these items is the focus of the v1 hardening roadmap.
 
-Liquidation donations are distributed after execution to liquidity active at
-the final tick. They are not guaranteed to follow the exact set of LPs, or the
-same proportions, that filled the entire chunk; just-in-time donation capture
-is an open incentive-design question.
+Liquidation donations are distributed after execution when liquidity is active
+at the final tick. With no active final-tick liquidity, the charge is set to
+zero and the corresponding output remains available for debt repayment. The
+active final-tick set can differ from the LP set and proportions that filled the
+whole chunk; just-in-time donation capture is an open incentive-design question.
 
 ## 10. Evaluation plan
 
@@ -636,23 +702,27 @@ Unichain Sepolia.
 
 ## 12. Conclusion
 
-TruePerp is most accurately described as an AMM-native perpetual-margin
-protocol offering up to 10x ETH leverage. Its long is WETH collateral financed
-by USDC debt; its short is USDC collateral financed by WETH debt. The absence
-of expiry gives perpetual economic exposure, while real inventory removes the
-need for a shared vault to honor uncapped marked profit.
+TruePerp is an AMM-native perpetual-margin protocol offering up to 10x
+base-asset leverage. Its long is base collateral financed by quote debt; its
+short is quote collateral financed by base debt. The absence of expiry gives
+perpetual economic exposure, while real inventory removes the need for a shared
+vault to honor uncapped marked profit.
 
 The research contribution is the execution lifecycle: ordinary Uniswap swaps
-detect risk and advance bounded collateral conversions; each conversion repays
-real debt and donates to pool liquidity active after execution; recovery pauses
-the remaining process; `poke` restores liveness in quiet periods; and a
-slippage-bounded force-close declares the terminal credit outcome. Lending
-vaults make the leverage possible, but the hook-mediated union of price,
-execution, and gradual liquidation is what distinguishes TruePerp.
+detect risk and advance bounded collateral conversions; each filled conversion
+repays real debt and directs the liquidation donation to active final-tick
+liquidity; recovery pauses the remaining process; `poke` restores liveness in
+quiet periods; and a slippage-bounded force-close declares the terminal credit
+outcome. Lending vaults make the leverage possible, but the hook-mediated union
+of price, execution, and gradual liquidation is what distinguishes TruePerp.
 
 ## References
 
-1. Adams et al., *Uniswap v4 Core* and *Uniswap v4 Hooks*.
-2. TrueLend, repository and design notes on AMM-native gradual liquidation.
+1. Adams et al., [*Uniswap v4 Core*](https://app.uniswap.org/whitepaper-v4.pdf).
+2. [TrueLend](https://github.com/queenleoa/TrueLend), repository and design
+   notes on AMM-native gradual liquidation.
 3. Uniswap Labs, research on pool-derived time-weighted and truncated price
    observations.
+4. Zhou et al., [*SoK: Decentralized Finance (DeFi) Attacks*](https://arxiv.org/abs/2208.13035).
+5. Qin et al., [*An Empirical Study of DeFi Liquidations: Incentives, Risks, and Instabilities*](https://arxiv.org/abs/2106.06389).
+6. Warmuz et al., [*Toxic Liquidation Spirals*](https://arxiv.org/abs/2212.07306).
